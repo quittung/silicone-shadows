@@ -19,13 +19,12 @@
     legend { padding:0 .35rem; color:var(--muted); }
     label { display:block; margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }
     input, select, button { width:100%; color:var(--text); background:#252c34; border:1px solid var(--border); border-radius:6px; padding:.5rem .6rem; font:inherit; }
-    input[type="range"] { padding:0; accent-color:var(--accent); }
     button { cursor:pointer; }
     button:hover, button.active { border-color:var(--accent); background:#263943; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
     #add, #add-filter { margin-top:.65rem; background:#164b56; border-color:#168da0; font-weight:650; }
     #canvas-wrap { position:relative; min-width:0; min-height:0; background:#ecece8; }
-    canvas { display:block; width:100%; height:100%; touch-action:none; cursor:default; }
+    canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
     #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#59616a; pointer-events:none; }
     #empty.hidden { display:none; }
     #layers { display:grid; gap:.4rem; }
@@ -37,7 +36,6 @@
     .remove { width:auto; padding:.2rem .45rem; color:var(--danger); }
     .hint, #status { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
     #status.error { color:var(--danger); }
-    output { color:var(--muted); float:right; }
   </style>
 </head>
 <body>
@@ -65,9 +63,9 @@
       <fieldset>
         <legend>Display</legend>
         <div class="row"><button id="imperial" class="active">Imperial</button><button id="metric">Metric</button></div>
-        <label for="scale">Canvas scale <output id="scale-value">48 px/in</output></label>
-        <input id="scale" type="range" min="20" max="90" value="48">
+        <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="reset-view">Reset view</button></div>
         <div class="row" style="margin-top:.65rem"><button id="remove-selected">Remove selected</button><button id="clear">Clear canvas</button></div>
+        <div class="hint">Wheel zoom · drag empty space or middle-drag to pan. The scale bar is shown in the canvas.</div>
       </fieldset>
 
       <fieldset>
@@ -93,10 +91,13 @@
     let objects = [];
     let selected = null;
     let drag = null;
+    let pan = null;
     let metric = false;
-    let pixelsPerInch = 48;
     let nextId = 1;
     let bulkAdding = false;
+    const view = { zoom: 48, x: 0, y: 0 };
+    const MIN_ZOOM = 1;
+    const MAX_ZOOM = 400;
 
     function setStatus(message, error=false) {
       $('#status').textContent = message;
@@ -188,6 +189,10 @@
     function addObject(product, size, loaded, color, image=tintImage(loaded.image, color)) {
       const start = product.main_length.start;
       const end = product.main_length.end;
+      const [x, y] = screenToWorld(
+        wrap.clientWidth / 2 + (objects.length % 5) * 16,
+        wrap.clientHeight / 2 + (objects.length % 5) * 12,
+      );
       const object = {
         id: nextId++, product, size, image, color, rasterScale: loaded.rasterScale,
         midpoint: [
@@ -195,8 +200,7 @@
           (start[1] + end[1]) / 2 * loaded.rasterScale,
         ],
         rotation: -Math.PI / 2 - Math.atan2(end[1] - start[1], end[0] - start[0]),
-        x: wrap.clientWidth / 2 + (objects.length % 5) * 16,
-        y: wrap.clientHeight / 2 + (objects.length % 5) * 12,
+        x, y,
       };
       objects.push(object);
       selected = object;
@@ -215,8 +219,10 @@
         const row = Math.floor(index / columns);
         const column = index % columns;
         const rowSize = Math.min(columns, items.length - row * columns);
-        object.x = (column + (columns - rowSize) / 2 + .5) * width / columns;
-        object.y = (row + .5) * height / rows;
+        [object.x, object.y] = screenToWorld(
+          (column + (columns - rowSize) / 2 + .5) * width / columns,
+          (row + .5) * height / rows,
+        );
       });
     }
 
@@ -272,7 +278,7 @@
       const pixels = Math.hypot(
         line.end[0] - line.start[0], line.end[1] - line.start[1],
       ) * object.rasterScale;
-      return pixelsPerInch * object.size.length_in / pixels;
+      return object.size.length_in / pixels;
     }
 
     function drawGrid(width, height) {
@@ -280,17 +286,56 @@
       ctx.strokeStyle = '#d3d5d2';
       ctx.fillStyle = '#7b8288';
       ctx.font = '11px system-ui';
-      const spacing = metric ? pixelsPerInch / 2.54 : pixelsPerInch;
-      const majorEvery = metric ? 5 : 1;
-      for (let index = 0, x = 0; x < width; index++, x = index * spacing) {
-        ctx.globalAlpha = index % majorEvery === 0 ? .8 : .35;
+      const unitsPerInch = metric ? 2.54 : 1;
+      let stepUnits = 1;
+      while (stepUnits / unitsPerInch * view.zoom < 8) stepUnits *= 2;
+      const spacing = stepUnits / unitsPerInch;
+      const labelEvery = metric && stepUnits === 1 ? 5 : 1;
+      const minX = -view.x / view.zoom;
+      const maxX = (width - view.x) / view.zoom;
+      const minY = -view.y / view.zoom;
+      const maxY = (height - view.y) / view.zoom;
+      for (let index = Math.floor(minX / spacing); index <= Math.ceil(maxX / spacing); index++) {
+        const x = view.x + index * spacing * view.zoom;
+        ctx.globalAlpha = index % labelEvery === 0 ? .8 : .35;
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-        if (index && index % majorEvery === 0) ctx.fillText(metric ? `${index} cm` : `${index} in`, x + 3, 13);
+        if (index % labelEvery === 0) {
+          ctx.fillText(`${index * stepUnits} ${metric ? 'cm' : 'in'}`, x + 3, 13);
+        }
       }
-      for (let index = 0, y = 0; y < height; index++, y = index * spacing) {
-        ctx.globalAlpha = index % majorEvery === 0 ? .8 : .35;
+      for (let index = Math.floor(minY / spacing); index <= Math.ceil(maxY / spacing); index++) {
+        const y = view.y + index * spacing * view.zoom;
+        ctx.globalAlpha = index % labelEvery === 0 ? .8 : .35;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
+      ctx.restore();
+    }
+
+    function niceScaleLength(target) {
+      const power = 10 ** Math.floor(Math.log10(target));
+      return [5, 2, 1].map(factor => factor * power).find(value => value <= target) || power;
+    }
+
+    function drawScaleBar(width, height) {
+      const unitsPerInch = metric ? 2.54 : 1;
+      const length = niceScaleLength(120 * unitsPerInch / view.zoom);
+      const pixels = length / unitsPerInch * view.zoom;
+      const x = width - pixels - 24;
+      const y = height - 24;
+      ctx.save();
+      ctx.fillStyle = 'rgb(255 255 255 / 82%)';
+      ctx.fillRect(x - 10, y - 25, pixels + 20, 39);
+      ctx.strokeStyle = '#30363b';
+      ctx.fillStyle = '#30363b';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5);
+      ctx.moveTo(x, y); ctx.lineTo(x + pixels, y);
+      ctx.moveTo(x + pixels, y - 5); ctx.lineTo(x + pixels, y + 5);
+      ctx.stroke();
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Number(length.toPrecision(3))} ${metric ? 'cm' : 'in'}`, x + pixels / 2, y - 9);
       ctx.restore();
     }
 
@@ -305,6 +350,10 @@
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = '#ecece8'; ctx.fillRect(0, 0, width, height);
       drawGrid(width, height);
+      ctx.setTransform(
+        ratio * view.zoom, 0, 0, ratio * view.zoom,
+        ratio * view.x, ratio * view.y,
+      );
       for (const object of objects) {
         const scale = objectScale(object);
         ctx.save();
@@ -317,18 +366,25 @@
         if (object === selected) {
           ctx.globalAlpha = 1;
           ctx.strokeStyle = object.color;
-          ctx.lineWidth = 2 / scale;
-          ctx.setLineDash([6 / scale, 4 / scale]);
+          ctx.lineWidth = 2 / scale / view.zoom;
+          ctx.setLineDash([6 / scale / view.zoom, 4 / scale / view.zoom]);
           ctx.strokeRect(0, 0, object.image.width, object.image.height);
         }
         ctx.restore();
       }
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      drawScaleBar(width, height);
       $('#empty').classList.toggle('hidden', objects.length > 0);
+    }
+
+    function screenToWorld(x, y) {
+      return [(x - view.x) / view.zoom, (y - view.y) / view.zoom];
     }
 
     function localPoint(object, x, y) {
       const scale = objectScale(object);
-      const dx = x - object.x, dy = y - object.y;
+      const [worldX, worldY] = screenToWorld(x, y);
+      const dx = worldX - object.x, dy = worldY - object.y;
       const cosine = Math.cos(object.rotation), sine = Math.sin(object.rotation);
       return [
         (cosine * dx + sine * dy) / scale + object.midpoint[0],
@@ -348,10 +404,47 @@
     }
 
     function updateUnits() {
-      $('#scale-value').textContent = metric
-        ? `${(pixelsPerInch / 2.54).toFixed(1)} px/cm`
-        : `${pixelsPerInch} px/in`;
       updateSizes(); renderLayers(); render();
+    }
+
+    function objectBounds(object) {
+      const scale = objectScale(object);
+      const cosine = Math.cos(object.rotation), sine = Math.sin(object.rotation);
+      return [
+        [0, 0], [object.image.width, 0],
+        [object.image.width, object.image.height], [0, object.image.height],
+      ].map(([x, y]) => {
+        const dx = (x - object.midpoint[0]) * scale;
+        const dy = (y - object.midpoint[1]) * scale;
+        return [
+          object.x + cosine * dx - sine * dy,
+          object.y + sine * dx + cosine * dy,
+        ];
+      });
+    }
+
+    function fitAll() {
+      if (!objects.length) return resetView();
+      const points = objects.flatMap(objectBounds);
+      const xs = points.map(point => point[0]);
+      const ys = points.map(point => point[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const width = wrap.clientWidth, height = wrap.clientHeight;
+      view.zoom = Math.max(MIN_ZOOM, Math.min(
+        MAX_ZOOM,
+        (width - 80) / Math.max(maxX - minX, .01),
+        (height - 80) / Math.max(maxY - minY, .01),
+      ));
+      view.x = width / 2 - (minX + maxX) / 2 * view.zoom;
+      view.y = height / 2 - (minY + maxY) / 2 * view.zoom;
+      render();
+    }
+
+    function resetView() {
+      view.zoom = 48;
+      view.x = view.y = 0;
+      render();
     }
 
     function renderLayers() {
@@ -389,22 +482,50 @@
       return [event.clientX - rect.left, event.clientY - rect.top];
     }
     canvas.addEventListener('pointerdown', event => {
+      if (event.button !== 0 && event.button !== 1) return;
+      if (event.button === 1) event.preventDefault();
       const [x, y] = pointerPosition(event);
-      const object = hitObject(x, y);
-      if (!object) { selected = null; renderLayers(); render(); return; }
-      selectObject(object);
-      drag = { x, y, ox: object.x, oy: object.y };
       canvas.setPointerCapture(event.pointerId);
+      const object = event.button === 0 ? hitObject(x, y) : null;
+      if (object) {
+        selectObject(object);
+        drag = { x, y, ox: object.x, oy: object.y };
+      } else {
+        if (event.button === 0) { selected = null; renderLayers(); }
+        pan = { x, y, ox: view.x, oy: view.y };
+      }
+      canvas.style.cursor = 'grabbing';
     });
     canvas.addEventListener('pointermove', event => {
-      if (!drag || !selected) return;
       const [x, y] = pointerPosition(event);
-      selected.x = drag.ox + x - drag.x; selected.y = drag.oy + y - drag.y;
-      render();
+      if (drag && selected) {
+        selected.x = drag.ox + (x - drag.x) / view.zoom;
+        selected.y = drag.oy + (y - drag.y) / view.zoom;
+        render();
+      } else if (pan) {
+        view.x = pan.ox + x - pan.x;
+        view.y = pan.oy + y - pan.y;
+        render();
+      }
     });
-    const finishDrag = () => { drag = null; };
+    const finishDrag = () => { drag = pan = null; canvas.style.cursor = 'grab'; };
     canvas.addEventListener('pointerup', finishDrag);
     canvas.addEventListener('pointercancel', finishDrag);
+    canvas.addEventListener('auxclick', event => {
+      if (event.button === 1) event.preventDefault();
+    });
+    canvas.addEventListener('wheel', event => {
+      event.preventDefault();
+      const [x, y] = pointerPosition(event);
+      const [worldX, worldY] = screenToWorld(x, y);
+      view.zoom = Math.max(
+        MIN_ZOOM,
+        Math.min(MAX_ZOOM, view.zoom * Math.exp(-event.deltaY * .0015)),
+      );
+      view.x = x - worldX * view.zoom;
+      view.y = y - worldY * view.zoom;
+      render();
+    }, { passive: false });
 
     for (const input of [$('#search'), $('#vendor'), $('#type')]) input.addEventListener('input', filterProducts);
     $('#product').addEventListener('change', updateSizes);
@@ -412,7 +533,8 @@
     $('#add-filter').addEventListener('click', addFiltered);
     $('#imperial').addEventListener('click', () => { metric = false; $('#imperial').classList.add('active'); $('#metric').classList.remove('active'); updateUnits(); });
     $('#metric').addEventListener('click', () => { metric = true; $('#metric').classList.add('active'); $('#imperial').classList.remove('active'); updateUnits(); });
-    $('#scale').addEventListener('input', event => { pixelsPerInch = Number(event.target.value); $('#scale-value').textContent = metric ? `${(pixelsPerInch / 2.54).toFixed(1)} px/cm` : `${pixelsPerInch} px/in`; render(); });
+    $('#fit-all').addEventListener('click', fitAll);
+    $('#reset-view').addEventListener('click', resetView);
     $('#remove-selected').addEventListener('click', () => { if (selected) removeObject(selected); });
     $('#clear').addEventListener('click', () => { objects = []; selected = null; renderLayers(); render(); });
     new ResizeObserver(render).observe(wrap);
