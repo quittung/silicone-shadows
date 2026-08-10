@@ -102,6 +102,26 @@ Run the checks with:
 Additional server options are available through
 `.venv/bin/python review.py --help`.
 
+## Dataset releases
+
+Build a versioned, data-only ZIP and SHA-256 checksum with:
+
+```sh
+.venv/bin/python release_dataset.py v0.1.0
+```
+
+Inspect the files under `dist/`, including the generated release notes. Once the
+release commit is clean and pushed, create a GitHub draft by adding `--draft`:
+
+```sh
+.venv/bin/python release_dataset.py v0.1.0 --draft
+```
+
+Draft releases are visible only to repository collaborators. Review and edit it
+on GitHub, then use GitHub's **Publish release** button when it is ready.
+
+The archive contains only `dataset/` and a manifest recording the dataset
+version, schema version, catalog source, commit, timestamp, and quality counts.
 
 The catalog version is pinned in [`catalog_source.json`](catalog_source.json).
 Updating its `version` is enough to make the app download a newer catalog.

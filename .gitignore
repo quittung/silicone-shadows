@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 .local/
+dist/
 in/
 work/
 test_out/
