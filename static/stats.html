@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Batch Outliner — Stats</title>
+  <style>
+    :root { color-scheme: dark; font: 15px/1.4 system-ui, sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --warn:#fbbf24; --bad:#fb7185; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header { height:58px; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem; position:sticky; top:0; z-index:2; background:var(--panel); border-bottom:1px solid var(--border); }
+    header strong { margin-right:auto; }
+    nav { display:flex; gap:.35rem; }
+    nav a { color:var(--muted); text-decoration:none; padding:.4rem .6rem; border-radius:5px; }
+    nav a:hover, nav a.active { color:var(--text); background:#28313a; }
+    main { max-width:1400px; margin:auto; padding:1.2rem; }
+    h1 { margin:.2rem 0 1rem; font-size:1.55rem; }
+    h2 { margin:1.5rem 0 .7rem; font-size:1.15rem; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:.7rem; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:.85rem; }
+    .card .value { font-size:1.65rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .card .label { color:var(--muted); }
+    .progress { height:9px; margin-top:.55rem; overflow:hidden; border-radius:9px; background:#2a3139; }
+    .progress div { height:100%; background:var(--accent); }
+    .quality { display:flex; gap:.7rem; flex-wrap:wrap; }
+    .quality .card { min-width:180px; flex:1; }
+    .good .value { color:var(--good); } .warning .value { color:var(--warn); } .bad .value { color:var(--bad); }
+    .legend { display:flex; justify-content:flex-end; gap:1rem; margin:-2rem 0 .65rem; color:var(--muted); font-size:.85rem; }
+    .legend span { display:flex; align-items:center; gap:.35rem; }
+    .legend i { width:.75rem; height:.75rem; border-radius:2px; }
+    .legend .good-key i, .segment.good { background:var(--good); }
+    .legend .perspective-key i, .segment.perspective { background:var(--warn); }
+    .legend .unusable-key i, .segment.unusable { background:var(--bad); }
+    .legend .pending-key i, .segment.pending { background:#48515c; }
+    .chart { overflow:auto; max-height:560px; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
+    .chart-row { display:grid; grid-template-columns:minmax(9rem,18rem) minmax(16rem,1fr) 4.5rem; gap:.7rem; align-items:center; padding:.48rem .6rem; border-bottom:1px solid #2a3139; }
+    .chart-row:last-child { border-bottom:0; }
+    .chart-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .stack { min-width:0; height:1.8rem; display:flex; overflow:hidden; border-radius:5px; background:#252c34; font-variant-numeric:tabular-nums; }
+    .segment { flex-basis:0; min-width:2rem; display:grid; place-items:center; color:#111418; font-size:.8rem; font-weight:700; }
+    .segment.pending { color:var(--text); }
+    .chart-total { text-align:right; font-size:1.05rem; font-weight:700; font-variant-numeric:tabular-nums; }
+    .chart-total small { display:block; color:var(--muted); font-size:.68rem; font-weight:400; text-transform:uppercase; }
+    @media (max-width:700px) {
+      .legend { margin:0 0 .65rem; justify-content:flex-start; flex-wrap:wrap; }
+      .chart-row { grid-template-columns:1fr 3.5rem; }
+      .stack { grid-column:1 / -1; grid-row:2; }
+    }
+    #error { color:var(--bad); }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Batch Outliner</strong>
+    <nav>
+      <a href="/">Review</a>
+      <a class="active" href="/stats">Stats</a>
+      <a href="/compare">Compare</a>
+    </nav>
+  </header>
+  <main>
+    <h1>Catalog progress</h1>
+    <div id="error"></div>
+    <section class="cards">
+      <div class="card"><div class="value" id="products">—</div><div class="label">Catalog products</div></div>
+      <div class="card"><div class="value" id="reviewed">—</div><div class="label">Reviewed products</div><div class="progress"><div id="review-progress"></div></div></div>
+      <div class="card"><div class="value" id="pending">—</div><div class="label">Pending review</div></div>
+      <div class="card"><div class="value" id="comparable">—</div><div class="label">Ready to compare</div></div>
+    </section>
+
+    <h2>Quality</h2>
+    <section class="quality">
+      <div class="card good"><div class="value" id="good">—</div><div class="label">Good</div></div>
+      <div class="card warning"><div class="value" id="perspective">—</div><div class="label">Bad perspective</div></div>
+      <div class="card bad"><div class="value" id="unusable">—</div><div class="label">Unusable</div></div>
+    </section>
+
+    <h2>By vendor</h2>
+    <div class="legend" aria-label="Chart legend">
+      <span class="good-key"><i></i>Good</span>
+      <span class="perspective-key"><i></i>Bad perspective</span>
+      <span class="unusable-key"><i></i>Unusable</span>
+      <span class="pending-key"><i></i>Pending</span>
+    </div>
+    <div id="vendors" class="chart"></div>
+
+    <h2>By product type</h2>
+    <div class="legend" aria-label="Chart legend">
+      <span class="good-key"><i></i>Good</span>
+      <span class="perspective-key"><i></i>Bad perspective</span>
+      <span class="unusable-key"><i></i>Unusable</span>
+      <span class="pending-key"><i></i>Pending</span>
+    </div>
+    <div id="types" class="chart"></div>
+  </main>
+  <script>
+    const $ = selector => document.querySelector(selector);
+    const percent = (value, total) => total ? Math.round(value * 100 / total) : 0;
+
+    function renderBreakdown(target, rows) {
+      target.replaceChildren();
+      for (const item of rows) {
+        const row = document.createElement('div');
+        row.className = 'chart-row';
+        const name = document.createElement('div');
+        name.className = 'chart-name';
+        name.textContent = item.name;
+        name.title = item.name;
+        const stack = document.createElement('div');
+        stack.className = 'stack';
+        const states = [
+          ['good', 'Good', item.good],
+          ['perspective', 'Bad perspective', item.bad_perspective],
+          ['unusable', 'Unusable', item.unusable],
+          ['pending', 'Pending', item.total - item.reviewed],
+        ];
+        for (const [className, label, count] of states) {
+          if (!count) continue;
+          const segment = document.createElement('div');
+          segment.className = `segment ${className}`;
+          segment.style.flexGrow = count;
+          segment.textContent = count;
+          segment.title = `${label}: ${count}`;
+          segment.setAttribute('aria-label', `${label}: ${count}`);
+          stack.appendChild(segment);
+        }
+        const total = document.createElement('div');
+        total.className = 'chart-total';
+        total.append(String(item.total));
+        const totalLabel = document.createElement('small');
+        totalLabel.textContent = 'Total';
+        total.appendChild(totalLabel);
+        row.append(name, stack, total);
+        target.appendChild(row);
+      }
+    }
+
+    (async () => {
+      try {
+        const response = await fetch('/api/stats');
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        const data = await response.json();
+        const summary = data.summary;
+        $('#products').textContent = summary.products;
+        $('#reviewed').textContent = `${summary.reviewed} / ${summary.products}`;
+        $('#pending').textContent = summary.pending;
+        $('#comparable').textContent = summary.comparable;
+        $('#good').textContent = summary.good;
+        $('#perspective').textContent = summary.bad_perspective;
+        $('#unusable').textContent = summary.unusable;
+        $('#review-progress').style.width = `${percent(summary.reviewed, summary.products)}%`;
+        renderBreakdown($('#vendors'), data.vendors);
+        renderBreakdown($('#types'), data.product_types);
+      } catch (error) {
+        $('#error').textContent = error.message;
+      }
+    })();
+  </script>
+</body>
+</html>

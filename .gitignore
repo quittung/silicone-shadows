@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.local/
+in/
+work/
+test_out/
+products_v*.json
