@@ -62,7 +62,7 @@
 
       <fieldset>
         <legend>Display</legend>
-        <div class="row"><button id="imperial" class="active">Imperial</button><button id="metric">Metric</button></div>
+        <div class="row"><button id="imperial">Imperial</button><button id="metric" class="active">Metric</button></div>
         <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="reset-view">Reset view</button></div>
         <div class="row" style="margin-top:.65rem"><button id="remove-selected">Remove selected</button><button id="clear">Clear canvas</button></div>
         <div class="hint">Wheel zoom · drag empty space or middle-drag to pan. The scale bar is shown in the canvas.</div>
@@ -92,7 +92,7 @@
     let selected = null;
     let drag = null;
     let pan = null;
-    let metric = false;
+    let metric = true;
     let nextId = 1;
     let bulkAdding = false;
     const view = { zoom: 48, x: 0, y: 0 };
