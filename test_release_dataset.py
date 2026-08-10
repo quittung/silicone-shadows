@@ -20,8 +20,13 @@ class ReleaseDatasetTest(unittest.TestCase):
                 manifest = json.loads(bundle.read("manifest.json"))
 
             self.assertEqual(manifest["dataset_version"], "v0.0.0")
+            self.assertEqual(manifest["license"], "CC0-1.0")
+            self.assertEqual(manifest["rights_notice"], "dataset/NOTICE.md")
             self.assertIn(f"Records: {manifest['records']['total']}", notes.read_text())
             self.assertIn("Metadata format version: 1", notes.read_text())
+            self.assertIn("Dataset dedication: CC0-1.0", notes.read_text())
+            self.assertIn("dataset/LICENSE", names)
+            self.assertIn("dataset/NOTICE.md", names)
             self.assertEqual(
                 manifest["records"]["total"],
                 sum(name.endswith("/metadata.json") for name in names),

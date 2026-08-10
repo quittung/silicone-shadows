@@ -91,6 +91,24 @@ Pull before starting a large batch where practical, and avoid changing another
 contributor's record unless you are deliberately improving it. Source-code
 improvements are welcome too.
 
+By contributing material under `dataset/`, you apply CC0 1.0 to any copyright,
+related rights, or database rights you hold in that contribution.
+
+## Licensing and independence
+
+The software is available under the [MIT No Attribution license](LICENSE). To
+the extent that maintainers and contributors hold rights in the dataset and its
+silhouettes, those rights are waived under
+[CC0 1.0 Universal](dataset/LICENSE). This does not claim ownership of or grant
+rights in underlying product designs, source photographs, catalog content,
+names, or trademarks. See the dataset's [rights notice](dataset/NOTICE.md) for
+details.
+
+Silicone Shadows is independent and is not affiliated with, endorsed by, or
+sponsored by Fantasy Toybox or any represented vendor. If you have concerns
+about the accuracy, attribution, provenance, or inclusion of material, please
+[open an issue](https://github.com/quittung/silicone-shadows/issues).
+
 ## Development
 
 Run the checks with:
@@ -121,7 +139,9 @@ Draft releases are visible only to repository collaborators. Review and edit it
 on GitHub, then use GitHub's **Publish release** button when it is ready.
 
 The archive contains only `dataset/` and a manifest recording the dataset
-version, schema version, catalog source, commit, timestamp, and quality counts.
+version, schema version, catalog source, license, commit, timestamp, and quality
+counts. The dataset license and rights notice are therefore included in every
+release archive.
 
 The catalog version is pinned in [`catalog_source.json`](catalog_source.json).
 Updating its `version` is enough to make the app download a newer catalog.

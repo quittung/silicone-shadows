@@ -67,6 +67,8 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     return {
         "dataset_version": version,
         "schema_version": schema_versions.pop(),
+        "license": "CC0-1.0",
+        "rights_notice": "dataset/NOTICE.md",
         "catalog": catalog,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "git_commit": git("rev-parse", "HEAD"),
@@ -88,8 +90,11 @@ def release_notes(manifest: dict) -> str:
 - Bad perspective: {quality['bad_perspective']}
 - Unusable: {quality['unusable']}
 - Metadata format version: {manifest['schema_version']}
+- Dataset dedication: CC0-1.0, to the extent contributors hold applicable rights
 
 The attached ZIP contains the published `dataset/` tree and its snapshot manifest.
+Third-party rights and the project's correction/removal process are described in
+`dataset/NOTICE.md` inside the archive.
 Use the attached SHA-256 file to verify the download.
 """
 
