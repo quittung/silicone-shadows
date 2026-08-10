@@ -209,20 +209,49 @@
 
     function spreadObjects(items) {
       if (!items.length) return;
-      const width = wrap.clientWidth;
-      const height = wrap.clientHeight;
-      const columns = Math.min(items.length, Math.max(
-        1, Math.round(Math.sqrt(items.length * width / height)),
-      ));
+      const boxes = items.map(object => {
+        const points = objectBounds(object);
+        const xs = points.map(point => point[0]);
+        const ys = points.map(point => point[1]);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        return {
+          object,
+          width: maxX - minX,
+          height: maxY - minY,
+          centerX: (minX + maxX) / 2,
+          centerY: (minY + maxY) / 2,
+        };
+      });
+      const maxWidth = Math.max(...boxes.map(box => box.width));
+      const maxHeight = Math.max(...boxes.map(box => box.height));
+      const cellWidth = maxWidth;
+      const cellHeight = maxHeight;
+      let columns = 1;
+      let bestScore = Infinity;
+      for (let candidate = 1; candidate <= items.length; candidate++) {
+        const candidateRows = Math.ceil(items.length / candidate);
+        const aspect = candidate * cellWidth / (candidateRows * cellHeight);
+        const emptyCells = candidate * candidateRows - items.length;
+        const score = Math.abs(Math.log(aspect)) + emptyCells / items.length * .05;
+        if (score < bestScore) {
+          columns = candidate;
+          bestScore = score;
+        }
+      }
       const rows = Math.ceil(items.length / columns);
-      items.forEach((object, index) => {
+      const [centerX, centerY] = screenToWorld(
+        wrap.clientWidth / 2,
+        wrap.clientHeight / 2,
+      );
+      boxes.forEach((box, index) => {
         const row = Math.floor(index / columns);
         const column = index % columns;
         const rowSize = Math.min(columns, items.length - row * columns);
-        [object.x, object.y] = screenToWorld(
-          (column + (columns - rowSize) / 2 + .5) * width / columns,
-          (row + .5) * height / rows,
-        );
+        const targetX = centerX + (column - (rowSize - 1) / 2) * cellWidth;
+        const targetY = centerY + (row - (rows - 1) / 2) * cellHeight;
+        box.object.x += targetX - box.centerX;
+        box.object.y += targetY - box.centerY;
       });
     }
 
@@ -239,17 +268,25 @@
     }
 
     async function addFiltered() {
+      const filteredIds = new Set(shownProducts.map(product => String(product.id)));
+      const arrangeFiltered = () => {
+        spreadObjects(objects.filter(object => filteredIds.has(String(object.product.id))));
+        renderLayers();
+        fitAll();
+      };
       const variants = shownProducts.map(product => ({
         product,
         sizes: product.sizes.filter(size => !objects.some(object =>
           String(object.product.id) === String(product.id) && object.size.index === size.index)),
       })).filter(entry => entry.sizes.length);
-      if (!variants.length) return setStatus('All filtered sizes are already on the canvas');
+      if (!variants.length) {
+        arrangeFiltered();
+        return setStatus('All filtered sizes arranged');
+      }
       bulkAdding = true;
       $('#add-filter').disabled = true;
       let added = 0;
       let failures = 0;
-      const addedObjects = [];
       for (let index = 0; index < variants.length; index++) {
         const { product, sizes } = variants[index];
         setStatus(`Loading ${index + 1} of ${variants.length} filtered products…`);
@@ -258,7 +295,7 @@
           const color = palette[objects.length % palette.length];
           const image = tintImage(loaded.image, color);
           for (const size of sizes) {
-            addedObjects.push(addObject(product, size, loaded, color, image));
+            addObject(product, size, loaded, color, image);
             added++;
           }
         } catch (_) { failures++; }
@@ -269,8 +306,7 @@
         `${added} size${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
         failures > 0,
       );
-      spreadObjects(addedObjects);
-      renderLayers(); render();
+      arrangeFiltered();
     }
 
     function objectScale(object) {
