@@ -10,6 +10,7 @@ import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parent
@@ -119,6 +120,39 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path, Path]:
     return archive, checksum, notes
 
 
+def verify_release_assets(version: str, directory: Path, expected_commit: str) -> None:
+    archive = directory / f"silicone-shadows-dataset-{version}.zip"
+    checksum = directory / f"{archive.name}.sha256"
+    checksum_parts = checksum.read_text(encoding="ascii").split()
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    if checksum_parts != [digest, archive.name]:
+        raise RuntimeError("downloaded release checksum does not match its archive")
+
+    with zipfile.ZipFile(archive) as bundle:
+        names = set(bundle.namelist())
+        manifest = json.loads(bundle.read("manifest.json"))
+    if manifest.get("dataset_version") != version:
+        raise RuntimeError("downloaded release has the wrong dataset version")
+    if manifest.get("git_commit") != expected_commit:
+        raise RuntimeError("downloaded release was built from the wrong commit")
+    if not {"dataset/LICENSE", "dataset/NOTICE.md"} <= names:
+        raise RuntimeError("downloaded release is missing its license or rights notice")
+
+
+def verify_uploaded_release(version: str, expected_commit: str) -> None:
+    with TemporaryDirectory() as directory:
+        subprocess.run(
+            [
+                "gh", "release", "download", version,
+                "--dir", directory,
+                "--pattern", f"silicone-shadows-dataset-{version}.zip*",
+            ],
+            cwd=ROOT,
+            check=True,
+        )
+        verify_release_assets(version, Path(directory), expected_commit)
+
+
 def ensure_publishable() -> str:
     if git("status", "--porcelain"):
         raise RuntimeError("commit all changes before publishing")
@@ -158,6 +192,8 @@ def main() -> None:
                 cwd=ROOT,
                 check=True,
             )
+            verify_uploaded_release(args.version, head)
+            print("Verified uploaded archive and checksum")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
 
