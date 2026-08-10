@@ -41,6 +41,21 @@ class ReleaseDatasetTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             release_dataset.build("latest", Path("unused"))
 
+    def test_rejects_non_canonical_outline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outline = Path(directory) / "outline.svg"
+            outline.write_text(
+                '<svg width="500" height="1000" viewBox="0 0 .5 1" '
+                'xmlns="http://www.w3.org/2000/svg">'
+                '<path id="outline" d="M0 0v1z"/>'
+                '<line id="main-length" x1=".25" y1="1" x2=".25" y2="0" display="none"/>'
+                '</svg>'
+            )
+            release_dataset.validate_outline(outline)
+            outline.write_text(outline.read_text().replace('y2="0"', 'y2=".2"'))
+            with self.assertRaises(ValueError):
+                release_dataset.validate_outline(outline)
+
 
 if __name__ == "__main__":
     unittest.main()

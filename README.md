@@ -138,7 +138,8 @@ release commit is clean and pushed, create a GitHub draft by adding `--draft`:
 Draft releases are visible only to repository collaborators. Review and edit it
 on GitHub, then use GitHub's **Publish release** button when it is ready. After
 uploading, the script downloads the draft assets again and verifies their
-checksum, manifest version and commit, license, and rights notice.
+checksum, manifest version and commit, license, and rights notice. Before the
+upload it also validates every metadata record and the normalized SVG structure.
 
 The archive contains only `dataset/` and a manifest recording the dataset
 version, schema version, catalog source, license, commit, timestamp, and quality
