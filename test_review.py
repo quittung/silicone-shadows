@@ -311,9 +311,14 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertAlmostEqual(
                     float(line.attrib["y1"]) - float(line.attrib["y2"]), 1
                 )
+                _, _, view_width, view_height = map(float, svg.attrib["viewBox"].split())
                 self.assertEqual(
-                    svg.attrib["viewBox"],
-                    f'0 0 {svg.attrib["width"]} {svg.attrib["height"]}',
+                    max(float(svg.attrib["width"]), float(svg.attrib["height"])),
+                    1000,
+                )
+                self.assertAlmostEqual(
+                    float(svg.attrib["width"]) / float(svg.attrib["height"]),
+                    view_width / view_height,
                 )
 
                 metadata = json.loads((item_dir / "metadata.json").read_text())

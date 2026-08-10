@@ -60,9 +60,14 @@ class OutlineTest(unittest.TestCase):
             )
             self.assertAlmostEqual(float(line.attrib["x1"]), float(line.attrib["x2"]))
             self.assertAlmostEqual(float(line.attrib["y1"]) - float(line.attrib["y2"]), 1)
+            _, _, view_width, view_height = map(float, aligned.attrib["viewBox"].split())
             self.assertEqual(
-                aligned.attrib["viewBox"],
-                f'0 0 {aligned.attrib["width"]} {aligned.attrib["height"]}',
+                max(float(aligned.attrib["width"]), float(aligned.attrib["height"])),
+                1000,
+            )
+            self.assertAlmostEqual(
+                float(aligned.attrib["width"]) / float(aligned.attrib["height"]),
+                view_width / view_height,
             )
 
             mask_dir = temp / "masks"

@@ -16,6 +16,7 @@ from scipy import ndimage
 
 MASK_SUFFIXES = {".bmp", ".png", ".tif", ".tiff", ".webp"}
 SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+ALIGNED_SVG_LONGEST_SIDE = 1000
 
 
 def load_foreground(path: Path, threshold: int) -> np.ndarray:
@@ -89,10 +90,19 @@ def svg_number(value: float) -> str:
     return "0" if abs(value) < 1e-12 else f"{value:.12g}"
 
 
-def write_svg(root: ET.Element, output: Path, width: float, height: float) -> None:
+def write_svg(
+    root: ET.Element,
+    output: Path,
+    width: float,
+    height: float,
+    intrinsic_longest_side: float | None = None,
+) -> None:
     width_text, height_text = svg_number(width), svg_number(height)
-    root.set("width", width_text)
-    root.set("height", height_text)
+    intrinsic_scale = (
+        intrinsic_longest_side / max(width, height) if intrinsic_longest_side else 1
+    )
+    root.set("width", svg_number(width * intrinsic_scale))
+    root.set("height", svg_number(height * intrinsic_scale))
     root.set("viewBox", f"0 0 {width_text} {height_text}")
     path = root.find(f".//{{{SVG_NAMESPACE}}}path")
     if path is None:
@@ -186,6 +196,7 @@ def trace_aligned_svg(
         output,
         maximum_x - minimum_x,
         maximum_y - minimum_y,
+        ALIGNED_SVG_LONGEST_SIDE,
     )
     return aligned_start, aligned_end
 
