@@ -200,6 +200,24 @@
       };
       objects.push(object);
       selected = object;
+      return object;
+    }
+
+    function spreadObjects(items) {
+      if (!items.length) return;
+      const width = wrap.clientWidth;
+      const height = wrap.clientHeight;
+      const columns = Math.min(items.length, Math.max(
+        1, Math.round(Math.sqrt(items.length * width / height)),
+      ));
+      const rows = Math.ceil(items.length / columns);
+      items.forEach((object, index) => {
+        const row = Math.floor(index / columns);
+        const column = index % columns;
+        const rowSize = Math.min(columns, items.length - row * columns);
+        object.x = (column + (columns - rowSize) / 2 + .5) * width / columns;
+        object.y = (row + .5) * height / rows;
+      });
     }
 
     async function addProduct() {
@@ -225,6 +243,7 @@
       $('#add-filter').disabled = true;
       let added = 0;
       let failures = 0;
+      const addedObjects = [];
       for (let index = 0; index < variants.length; index++) {
         const { product, sizes } = variants[index];
         setStatus(`Loading ${index + 1} of ${variants.length} filtered products…`);
@@ -233,7 +252,7 @@
           const color = palette[objects.length % palette.length];
           const image = tintImage(loaded.image, color);
           for (const size of sizes) {
-            addObject(product, size, loaded, color, image);
+            addedObjects.push(addObject(product, size, loaded, color, image));
             added++;
           }
         } catch (_) { failures++; }
@@ -244,6 +263,7 @@
         `${added} size${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
         failures > 0,
       );
+      spreadObjects(addedObjects);
       renderLayers(); render();
     }
 
