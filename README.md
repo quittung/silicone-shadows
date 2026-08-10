@@ -1,4 +1,4 @@
-# Fantasy Toybox Silhouettes
+# Silicone Shadows
 
 This is a community project to create a clean silhouette and main-length
 alignment data for every product in the
