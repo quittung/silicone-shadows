@@ -241,7 +241,30 @@ class HostedAppTest(unittest.TestCase):
         pending = moderator.get("/api/moderation/submissions")
         self.assertEqual(pending.status_code, 200, pending.text)
         self.assertEqual(pending.json()["submissions"][0]["contributor"], "Alice")
-        self.assertIsNotNone(pending.json()["submissions"][0]["outline_url"])
+        outline_url = pending.json()["submissions"][0]["outline_url"]
+        preview = moderator.get(outline_url)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_root = ET.fromstring(preview.content)
+        preview_line = next(
+            element
+            for element in preview_root.iter()
+            if element.get("id") == "main-length"
+        )
+        self.assertEqual(preview_line.get("display"), "inline")
+        self.assertTrue(
+            any(
+                element.get("id") == "main-length-tip"
+                for element in preview_root.iter()
+            )
+        )
+        stored_line = next(
+            element
+            for element in ET.parse(self.pending_dir / "sample/outline.svg")
+            .getroot()
+            .iter()
+            if element.get("id") == "main-length"
+        )
+        self.assertEqual(stored_line.get("display"), "none")
         approved = moderator.post("/api/moderation/submissions/sample/approve")
         self.assertEqual(approved.status_code, 204, approved.text)
         record = json.loads(

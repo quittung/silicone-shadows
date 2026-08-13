@@ -1,6 +1,8 @@
 """Reviewer-only pending-submission routes."""
 
 import shutil
+import xml.etree.ElementTree as ET
+from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -8,6 +10,51 @@ from fastapi.responses import FileResponse, Response
 
 from ..models import IndependentSubmission, IndependentUpdate, ReviewState
 from ..workspace import Workspace
+
+SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+
+
+def length_preview(path: Path) -> bytes:
+    root = ET.parse(path).getroot()
+    line = next(
+        (element for element in root.iter() if element.get("id") == "main-length"),
+        None,
+    )
+    if line is None:
+        return path.read_bytes()
+    line.attrib.update(
+        {
+            "display": "inline",
+            "stroke": "#fbbf24",
+            "stroke-width": "0.008",
+            "stroke-linecap": "round",
+        }
+    )
+    ET.SubElement(
+        root,
+        f"{{{SVG_NAMESPACE}}}circle",
+        {
+            "cx": line.get("x1"),
+            "cy": line.get("y1"),
+            "r": "0.014",
+            "fill": "#fbbf24",
+        },
+    )
+    tip_x, tip_y = float(line.get("x2")), float(line.get("y2"))
+    ET.SubElement(
+        root,
+        f"{{{SVG_NAMESPACE}}}polygon",
+        {
+            "id": "main-length-tip",
+            "points": (
+                f"{tip_x - 0.025},{tip_y + 0.05} "
+                f"{tip_x},{tip_y} {tip_x + 0.025},{tip_y + 0.05}"
+            ),
+            "fill": "#fbbf24",
+        },
+    )
+    ET.register_namespace("", SVG_NAMESPACE)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def register(app: FastAPI, workspace: Workspace) -> None:
@@ -19,7 +66,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             raise HTTPException(status_code=403, detail="reviewer access required")
 
     @app.get("/api/submissions/{item_id}/outline.svg")
-    def pending_outline(item_id: str, request: Request) -> FileResponse:
+    def pending_outline(
+        item_id: str, request: Request, show_length: bool = False
+    ) -> Response:
         require_reviewer(request)
         if not store or not store.submission(item_id):
             raise HTTPException(status_code=404, detail="pending submission not found")
@@ -28,11 +77,12 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             raise HTTPException(
                 status_code=404, detail="submission has no usable outline"
             )
-        return FileResponse(
-            path,
-            media_type="image/svg+xml",
-            headers={"Cache-Control": "no-store"},
-        )
+        headers = {"Cache-Control": "no-store"}
+        if show_length:
+            return Response(
+                length_preview(path), media_type="image/svg+xml", headers=headers
+            )
+        return FileResponse(path, media_type="image/svg+xml", headers=headers)
 
     @app.get("/api/moderation/submissions")
     def moderation_submissions(request: Request) -> dict:
@@ -77,7 +127,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "source": row["source"],
                     "products": products,
                     "outline_url": (
-                        f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg"
+                        f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg?show_length=true"
                         if independent or rating != "unusable"
                         else None
                     ),
