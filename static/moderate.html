@@ -61,7 +61,6 @@
     });
 
     async function decide(itemId, decision) {
-      if (!confirm(`${decision === 'approve' ? 'Approve' : 'Reject'} this submission?`)) return;
       try {
         await request(`/api/moderation/submissions/${encodeURIComponent(itemId)}/${decision}`, {method:'POST'});
         await load();
