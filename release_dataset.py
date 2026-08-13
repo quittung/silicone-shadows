@@ -107,9 +107,9 @@ def sync_hosted_dataset(version: str) -> bool:
     build_manifest(version, files)
     changes = git("status", "--short", "--", "dataset")
     if not changes:
-        print("Hosted dataset is already current")
+        print("Hosted dataset is already current", flush=True)
         return False
-    print(changes)
+    print(changes, flush=True)
     subprocess.run(["git", "add", "-A", "--", "dataset"], cwd=ROOT, check=True)
     staged = git("diff", "--cached", "--name-only")
     if not staged or any(
