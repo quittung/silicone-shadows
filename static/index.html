@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css">
+  <link rel="stylesheet" href="/static/review.css?v=20260813-1">
   <link rel="stylesheet" href="/static/metadata.css">
 </head>
 <body>
@@ -34,7 +34,7 @@
       <a class="active" href="/review">Review</a>
       <a href="/stats">Stats</a>
       <a href="/compare">Compare</a>
-      <a id="moderate-link" href="/moderate" hidden>Moderate</a>
+      <a id="moderate-link" href="/moderate" hidden>Moderate <span id="moderate-count" class="nav-count">0</span></a>
     </nav>
     <button id="logout" hidden>Log out</button>
     <button id="help" title="Review instructions" aria-label="Review instructions">?</button>
@@ -164,6 +164,6 @@
   </main>
 
   <script src="/static/metadata.js"></script>
-  <script src="/static/review.js"></script>
+  <script src="/static/review.js?v=20260813-1"></script>
 </body>
 </html>

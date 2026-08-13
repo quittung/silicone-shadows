@@ -34,6 +34,12 @@ header nav {
 }
 header nav a { color: var(--muted); text-decoration: none; padding: .4rem .55rem; border-radius: 5px; }
 header nav a:hover, header nav a.active { color: var(--text); background: #28313a; }
+.nav-count {
+  display: inline-grid; min-width: 1.35rem; height: 1.35rem; margin-left: .2rem;
+  place-items: center; padding: 0 .3rem; border-radius: 999px;
+  color: var(--text); background: #48515c; font-size: .78rem; font-variant-numeric: tabular-nums;
+}
+.nav-count.has-items { color: #111418; background: var(--warning); font-weight: 700; }
 #catalog-filters {
   position: absolute; left: 50%; transform: translateX(-50%);
   width: min(44vw, 58rem); min-width: 24rem; display: grid;

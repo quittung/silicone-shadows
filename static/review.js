@@ -40,7 +40,9 @@ function setStatus(message, error = false) {
 async function responseError(response) {
   let message = `${response.status} ${response.statusText}`;
   try { message = (await response.json()).detail || message; } catch (_) {}
-  return new Error(message);
+  const error = new Error(message);
+  error.status = response.status;
+  return error;
 }
 
 async function api(url, options = {}) {
@@ -86,6 +88,18 @@ async function refreshItems() {
   items = response.items;
   refreshProgressText();
   return response;
+}
+
+async function refreshModerationCount() {
+  const link = $('#moderate-link');
+  if (link.hidden) return;
+  try {
+    const data = await api('/api/moderation/submissions');
+    const count = data.submissions.length;
+    $('#moderate-count').textContent = count;
+    $('#moderate-count').classList.toggle('has-items', count > 0);
+    link.setAttribute('aria-label', `Moderate, ${count} pending`);
+  } catch (_) {}
 }
 
 function visibleItems() {
@@ -155,12 +169,20 @@ function startClaimHeartbeat(itemId) {
     if (!current || current.id !== itemId || current.read_only) return;
     try {
       await api(`/api/items/${encodeURIComponent(itemId)}/claim`, {method:'POST'});
+      if ($('#status').textContent === 'Connection interrupted; claim check will retry') {
+        setStatus('Claim active');
+      }
     } catch (error) {
+      if (!error.status || error.status >= 500) {
+        setStatus('Connection interrupted; claim check will retry', true);
+        return;
+      }
       clearInterval(claimHeartbeat);
       current.read_only = true;
       state = null;
       setEditorDisabled(true);
       setStatus(error.message, true);
+      render();
     }
   }, 60_000);
 }
@@ -528,7 +550,7 @@ function render() {
   if (!sourceImage) return;
   ctx.setTransform(ratio * view.zoom, 0, 0, ratio * view.zoom, ratio * view.x, ratio * view.y);
   ctx.imageSmoothingEnabled = true;
-  if (current?.read_only) ctx.filter = 'invert(1)';
+  if (current?.read_only && !rembgImage) ctx.filter = 'invert(1)';
   ctx.drawImage(sourceImage, 0, 0);
   ctx.filter = 'none';
 
@@ -698,6 +720,7 @@ async function performSave(status) {
   setStatus(status === 'done'
     ? (hostedMode ? 'Submitted for review' : 'Saved and exported')
     : 'Draft saved');
+  if (status === 'done') refreshModerationCount();
   return result;
 }
 
@@ -1070,6 +1093,10 @@ try {
     hostedMode = session.hosted;
     $('#logout').hidden = !session.user;
     $('#moderate-link').hidden = !session.user?.reviewer;
+    if (session.user?.reviewer) {
+      await refreshModerationCount();
+      setInterval(refreshModerationCount, 30_000);
+    }
     if (hostedMode) {
       $('#save-label').textContent = 'Submit';
       $('#source-info').textContent = 'Moving to another product discards unfinished work.';
