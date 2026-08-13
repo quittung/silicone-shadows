@@ -16,6 +16,7 @@ let current = null;
 let state = null;
 let sourceImage = null;
 let rembgImage = null;
+let maskForeground = new Uint8Array();
 let viewMode = 'overlay';
 let tool = 'add';
 let editsDirty = false;
@@ -485,11 +486,9 @@ function recomputeMask() {
   const edits = editsCanvas.getContext('2d').getImageData(0, 0, width, height).data;
   const maskCtx = maskCanvas.getContext('2d');
   const overlayCtx = overlayCanvas.getContext('2d');
-  const edgeCtx = edgeCanvas.getContext('2d');
   const mask = maskCtx.createImageData(width, height);
   const overlay = overlayCtx.createImageData(width, height);
-  const edgeImage = edgeCtx.createImageData(width, height);
-  const foreground = new Uint8Array(width * height);
+  maskForeground = new Uint8Array(width * height);
   const threshold = Number($('#threshold').value);
 
   for (let i = 0; i < base.length; i += 4) {
@@ -497,7 +496,7 @@ function recomputeMask() {
     if (edits[i + 3] > 0) isForeground = edits[i] >= 128;
     if (isForeground) {
       const pixel = i / 4;
-      foreground[pixel] = 1;
+      maskForeground[pixel] = 1;
       mask.data[i] = mask.data[i + 1] = mask.data[i + 2] = mask.data[i + 3] = 255;
     } else {
       overlay.data[i] = 0;
@@ -506,40 +505,90 @@ function recomputeMask() {
       overlay.data[i + 3] = 255;
     }
   }
-  const boundary = new Uint8Array(width * height);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const pixel = y * width + x;
-      if (!foreground[pixel]) continue;
-      if (x === 0 || y === 0 || x === width - 1 || y === height - 1 ||
-          !foreground[pixel - 1] || !foreground[pixel + 1] ||
-          !foreground[pixel - width] || !foreground[pixel + width]) {
-        boundary[pixel] = 1;
+  maskCtx.putImageData(mask, 0, 0);
+  overlayCtx.putImageData(overlay, 0, 0);
+  recomputeEdgeRegion(0, 0, width, height);
+  render();
+}
+
+function recomputeEdgeRegion(left, top, right, bottom) {
+  const width = maskCanvas.width;
+  const height = maskCanvas.height;
+  left = Math.max(0, left);
+  top = Math.max(0, top);
+  right = Math.min(width, right);
+  bottom = Math.min(height, bottom);
+  if (left >= right || top >= bottom) return;
+
+  const edgeCtx = edgeCanvas.getContext('2d');
+  const edgeImage = edgeCtx.createImageData(right - left, bottom - top);
+  const isForeground = (x, y) => maskForeground[y * width + x];
+  const candidateLeft = Math.max(0, left - 2);
+  const candidateTop = Math.max(0, top - 2);
+  const candidateRight = Math.min(width, right + 2);
+  const candidateBottom = Math.min(height, bottom + 2);
+
+  for (let y = candidateTop; y < candidateBottom; y++) {
+    for (let x = candidateLeft; x < candidateRight; x++) {
+      if (!isForeground(x, y)) continue;
+      if (x !== 0 && y !== 0 && x !== width - 1 && y !== height - 1 &&
+          isForeground(x - 1, y) && isForeground(x + 1, y) &&
+          isForeground(x, y - 1) && isForeground(x, y + 1)) continue;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          if (dx * dx + dy * dy > 4) continue;
+          const px = x + dx;
+          const py = y + dy;
+          if (px < left || py < top || px >= right || py >= bottom) continue;
+          edgeImage.data[((py - top) * (right - left) + px - left) * 4 + 3] = 255;
+        }
       }
-    }
-  }
-  for (let pixel = 0; pixel < boundary.length; pixel++) {
-    if (!boundary[pixel]) continue;
-    const x = pixel % width;
-    const y = Math.floor(pixel / width);
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        if (dx * dx + dy * dy > 4) continue;
-        const px = x + dx;
-        const py = y + dy;
-        if (px < 0 || py < 0 || px >= width || py >= height) continue;
-        const index = (py * width + px) * 4;
+      if (x >= left && y >= top && x < right && y < bottom) {
+        const index = ((y - top) * (right - left) + x - left) * 4;
+        edgeImage.data[index] = edgeImage.data[index + 1] = edgeImage.data[index + 2] = 255;
         edgeImage.data[index + 3] = 255;
       }
     }
-    const index = pixel * 4;
-    edgeImage.data[index] = edgeImage.data[index + 1] = edgeImage.data[index + 2] = 255;
-    edgeImage.data[index + 3] = 255;
   }
-  maskCtx.putImageData(mask, 0, 0);
-  overlayCtx.putImageData(overlay, 0, 0);
-  edgeCtx.putImageData(edgeImage, 0, 0);
-  render();
+  edgeCtx.putImageData(edgeImage, left, top);
+}
+
+function recomputeMaskSegment(from, to, size) {
+  const width = rembgCanvas.width;
+  const height = rembgCanvas.height;
+  const padding = size / 2 + 1;
+  const left = Math.max(0, Math.floor(Math.min(from[0], to[0]) - padding));
+  const top = Math.max(0, Math.floor(Math.min(from[1], to[1]) - padding));
+  const right = Math.min(width, Math.ceil(Math.max(from[0], to[0]) + padding));
+  const bottom = Math.min(height, Math.ceil(Math.max(from[1], to[1]) + padding));
+  if (left >= right || top >= bottom) return;
+
+  const regionWidth = right - left;
+  const regionHeight = bottom - top;
+  const base = rembgCanvas.getContext('2d').getImageData(left, top, regionWidth, regionHeight).data;
+  const edits = editsCanvas.getContext('2d').getImageData(left, top, regionWidth, regionHeight).data;
+  const maskCtx = maskCanvas.getContext('2d');
+  const overlayCtx = overlayCanvas.getContext('2d');
+  const mask = maskCtx.createImageData(regionWidth, regionHeight);
+  const overlay = overlayCtx.createImageData(regionWidth, regionHeight);
+  const threshold = Number($('#threshold').value);
+
+  for (let i = 0; i < base.length; i += 4) {
+    let isForeground = base[i + 3] >= threshold;
+    if (edits[i + 3] > 0) isForeground = edits[i] >= 128;
+    const pixel = i / 4;
+    const x = pixel % regionWidth;
+    const y = Math.floor(pixel / regionWidth);
+    maskForeground[(top + y) * width + left + x] = Number(isForeground);
+    if (isForeground) {
+      mask.data[i] = mask.data[i + 1] = mask.data[i + 2] = mask.data[i + 3] = 255;
+    } else {
+      overlay.data[i + 3] = 255;
+    }
+  }
+  maskCtx.putImageData(mask, left, top);
+  overlayCtx.putImageData(overlay, left, top);
+  recomputeEdgeRegion(left - 3, top - 3, right + 3, bottom + 3);
 }
 
 function render() {
@@ -558,7 +607,7 @@ function render() {
     ctx.globalAlpha = Number($('#opacity').value) / 100;
     ctx.drawImage(overlayCanvas, 0, 0);
     ctx.globalAlpha = 1;
-    if (!activeStroke) ctx.drawImage(edgeCanvas, 0, 0);
+    ctx.drawImage(edgeCanvas, 0, 0);
   } else if (viewMode === 'cutout') {
     ctx.globalCompositeOperation = 'destination-in';
     ctx.drawImage(maskCanvas, 0, 0);
@@ -621,22 +670,14 @@ function inside(point) {
     point[0] <= sourceImage.naturalWidth && point[1] <= sourceImage.naturalHeight;
 }
 
-function paintSegment(target, from, to, mode, size, displayLayer = false) {
-  const targetCtx = target.getContext('2d');
+function paintSegment(from, to, mode, size) {
+  const targetCtx = editsCanvas.getContext('2d');
   targetCtx.save();
   targetCtx.lineCap = 'round';
   targetCtx.lineJoin = 'round';
   targetCtx.lineWidth = size;
-  if (!displayLayer) {
-    targetCtx.globalCompositeOperation = 'source-over';
-    targetCtx.strokeStyle = mode === 'add' ? '#fff' : '#000';
-  } else if (target === maskCanvas) {
-    targetCtx.globalCompositeOperation = mode === 'add' ? 'source-over' : 'destination-out';
-    targetCtx.strokeStyle = '#fff';
-  } else {
-    targetCtx.globalCompositeOperation = mode === 'add' ? 'destination-out' : 'source-over';
-    targetCtx.strokeStyle = '#000';
-  }
+  targetCtx.globalCompositeOperation = 'source-over';
+  targetCtx.strokeStyle = mode === 'add' ? '#fff' : '#000';
   targetCtx.fillStyle = targetCtx.strokeStyle;
   targetCtx.beginPath();
   if (from[0] === to[0] && from[1] === to[1]) {
@@ -654,11 +695,8 @@ function drawStroke(stroke, live = true) {
   for (let i = 1; i < stroke.points.length; i++) {
     const from = stroke.points[i - 1];
     const to = stroke.points[i];
-    paintSegment(editsCanvas, from, to, stroke.mode, stroke.size);
-    if (live) {
-      paintSegment(maskCanvas, from, to, stroke.mode, stroke.size, true);
-      paintSegment(overlayCanvas, from, to, stroke.mode, stroke.size, true);
-    }
+    paintSegment(from, to, stroke.mode, stroke.size);
+    if (live) recomputeMaskSegment(from, to, stroke.size);
   }
 }
 
@@ -892,7 +930,7 @@ function finishPointer(cancelled = false) {
   if (activeStroke) {
     strokes.push(activeStroke);
     activeStroke = null;
-    recomputeMask();
+    render();
     markDirty(true);
   }
   if (activeLength) {
