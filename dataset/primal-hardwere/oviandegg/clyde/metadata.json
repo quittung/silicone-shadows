@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 941,
-  "vendor": "Primal Hardwere",
-  "product_type": "OviAndEgg",
-  "name": "Clyde",
   "quality": "good",
   "source": "alternative"
 }

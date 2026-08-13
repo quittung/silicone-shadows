@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 940,
-  "vendor": "Primal Hardwere",
-  "product_type": "OviAndEgg",
-  "name": "Blip",
   "quality": "good",
   "source": "alternative"
 }

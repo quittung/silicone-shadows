@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 26,
-  "vendor": "Weredog",
-  "product_type": "Plug",
-  "name": "Dagger",
   "quality": "good",
   "source": "catalog"
 }

@@ -19,8 +19,12 @@ ROOT = Path(__file__).resolve().parent
 VERSION_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
 QUALITIES = ("good", "bad_perspective", "unusable")
 SOURCES = ("catalog", "alternative")
-METADATA_FIELDS = {
-    "schema_version", "catalog_id", "vendor", "product_type", "name", "quality", "source"
+CATALOG_METADATA_FIELDS = {
+    "schema_version", "catalog_id", "quality", "source"
+}
+INDEPENDENT_METADATA_FIELDS = CATALOG_METADATA_FIELDS | {
+    "record_id", "vendor", "product_type", "name", "product_url", "species",
+    "tags", "features", "sizes", "notes"
 }
 DATASET_ROOT_FILES = {Path("dataset/LICENSE"), Path("dataset/NOTICE.md")}
 
@@ -43,7 +47,7 @@ def tracked_dataset_files() -> list[Path]:
     return sorted(files)
 
 
-def validate_outline(path: Path) -> None:
+def validate_outline(path: Path, require_main_length: bool = True) -> None:
     label = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
     try:
         root = ET.parse(path).getroot()
@@ -72,6 +76,8 @@ def validate_outline(path: Path) -> None:
     if len(paths) != 1 or paths[0].get("id") != "outline":
         raise ValueError(f"{label} must contain one outline path")
     line = next((element for element in root.iter() if element.get("id") == "main-length"), None)
+    if line is None and not require_main_length:
+        return
     try:
         x1, y1, x2, y2 = (float(line.get(name)) for name in ("x1", "y1", "x2", "y2"))
     except (AttributeError, TypeError, ValueError) as error:
@@ -100,24 +106,42 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     qualities: Counter[str] = Counter()
     schema_versions: set[int] = set()
     catalog_ids: set[int] = set()
+    record_ids: set[str] = set()
 
     for path in metadata_files:
         record = json.loads(path.read_text(encoding="utf-8"))
-        if set(record) != METADATA_FIELDS:
+        independent = record.get("catalog_id") is None
+        expected_fields = (
+            INDEPENDENT_METADATA_FIELDS if independent else CATALOG_METADATA_FIELDS
+        )
+        if set(record) != expected_fields:
             raise ValueError(f"{path.relative_to(ROOT)} has unexpected metadata fields")
         if type(record["schema_version"]) is not int:
             raise ValueError(f"{path.relative_to(ROOT)} has an invalid schema version")
-        if any(not isinstance(record[field], str) or not record[field] for field in ("vendor", "product_type", "name")):
-            raise ValueError(f"{path.relative_to(ROOT)} has an invalid catalog identity")
         quality = record.get("quality")
         if quality not in QUALITIES:
             raise ValueError(f"{path.relative_to(ROOT)} has invalid quality {quality!r}")
         if record.get("source") not in SOURCES:
             raise ValueError(f"{path.relative_to(ROOT)} has invalid source {record.get('source')!r}")
         catalog_id = record.get("catalog_id")
-        if type(catalog_id) is not int or catalog_id in catalog_ids:
-            raise ValueError(f"{path.relative_to(ROOT)} has an invalid or duplicate catalog_id")
-        catalog_ids.add(catalog_id)
+        if independent:
+            if any(
+                not isinstance(record[field], str) or not record[field]
+                for field in ("vendor", "product_type", "name")
+            ):
+                raise ValueError(
+                    f"{path.relative_to(ROOT)} has an invalid independent identity"
+                )
+            record_id = record.get("record_id")
+            if not isinstance(record_id, str) or not record_id or record_id in record_ids:
+                raise ValueError(f"{path.relative_to(ROOT)} has an invalid or duplicate record_id")
+            record_ids.add(record_id)
+            if not isinstance(record.get("sizes"), list):
+                raise ValueError(f"{path.relative_to(ROOT)} has invalid sizes")
+        else:
+            if type(catalog_id) is not int or catalog_id in catalog_ids:
+                raise ValueError(f"{path.relative_to(ROOT)} has an invalid or duplicate catalog_id")
+            catalog_ids.add(catalog_id)
         qualities[quality] += 1
         schema_versions.add(record.get("schema_version"))
 
@@ -127,7 +151,7 @@ def build_manifest(version: str, files: list[Path]) -> dict:
         if quality != "unusable" and outline not in file_set:
             raise ValueError(f"{outline.relative_to(ROOT)} is missing")
         if quality != "unusable":
-            validate_outline(outline)
+            validate_outline(outline, require_main_length=not independent)
 
     metadata_directories = {path.parent for path in metadata_files}
     orphaned_outlines = [

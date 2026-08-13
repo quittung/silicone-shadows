@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Silicone Shadows</title>
+  <link rel="stylesheet" href="/static/public.css">
+  <link rel="stylesheet" href="/static/metadata.css">
+</head>
+<body>
+  <section id="upload-screen">
+    <main id="upload-card">
+      <header class="landing-header">
+        <div>
+          <h1>Silicone Shadows</h1>
+          <p id="session-status">Preparing contribution tools…</p>
+        </div>
+        <button id="landing-logout" hidden>Log out</button>
+      </header>
+      <div id="choices">
+        <a id="catalog-choice" class="choice" href="/review" hidden>
+          <strong>Work on the Toybox catalog</strong>
+          <span>Claim a catalog product, edit its silhouette, then submit it for review or download it.</span>
+        </a>
+        <section class="choice independent">
+          <strong>Start an independent product</strong>
+          <span>Select, drop, or paste a photo for a product that does not need to exist in the Toybox catalog.</span>
+          <form id="upload-form">
+            <input id="image" name="image" type="file"
+              accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff" required>
+            <button id="upload">Remove background and edit</button>
+          </form>
+          <div id="upload-status" class="status" role="status"></div>
+        </section>
+      </div>
+      <p id="guest-contact" class="guest-contact" hidden>
+        Want to contribute to the catalog or have other questions? Contact <strong>qtng</strong> on Discord.
+      </p>
+      <div class="privacy">
+        <strong>Privacy</strong>
+        <p>We retain as little data as reasonably necessary to provide and protect
+          this service. Guest images are processed transiently and are not
+          intentionally stored. Temporary processing data and abuse-prevention
+          identifiers expire promptly. Work explicitly submitted for review is
+          retained for moderation and publication.</p>
+        <p>You are still sending data to a server operated by someone else. Do not
+          upload anything private, confidential, or sensitive.</p>
+      </div>
+    </main>
+  </section>
+
+  <section id="editor-screen" hidden>
+    <header>
+      <div>
+        <strong id="filename">Independent contribution</strong>
+        <div id="retention-hint" class="hint">Nothing is saved on the server; download before leaving.</div>
+      </div>
+      <button id="start-over">Start over</button>
+    </header>
+    <main id="editor-layout">
+      <section id="canvas-column">
+        <div id="canvas-wrap">
+          <canvas id="canvas"></canvas>
+        </div>
+        <div id="viewbar">
+          <button class="view active" data-view="overlay">Overlay</button>
+          <button class="view" data-view="original">Original</button>
+          <button class="view" data-view="cutout">Cutout</button>
+          <span class="spacer"></span>
+          <button id="fit">Fit</button>
+          <span class="hint">Wheel zoom · middle drag pans</span>
+        </div>
+      </section>
+
+      <aside>
+        <fieldset>
+          <legend>1. Correct mask</legend>
+          <div class="hint step-help">
+            Use Add and Erase to correct the silhouette.
+          </div>
+          <label>Alpha threshold</label>
+          <div class="range">
+            <input id="threshold" type="range" min="1" max="255" value="128">
+            <output id="threshold-value">128</output>
+          </div>
+          <label>Overlay opacity</label>
+          <div class="range">
+            <input id="opacity" type="range" min="0" max="100" value="75">
+            <output id="opacity-value">75%</output>
+          </div>
+          <div class="button-grid">
+            <button class="tool active" data-tool="add">Add <kbd>A</kbd></button>
+            <button class="tool" data-tool="erase">Erase <kbd>E</kbd></button>
+          </div>
+          <label>Brush size</label>
+          <div class="range">
+            <input id="brush" type="range" min="2" max="250" value="40">
+            <output id="brush-value">40 px</output>
+          </div>
+          <div class="button-grid">
+            <button id="undo">Undo stroke</button>
+            <button id="reset-edits">Reset paint</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>2. Add scaling info <span class="optional">optional</span></legend>
+          <div id="line-info" class="hint">Select Length, then mark the usable portion toward the tip.</div>
+          <div class="button-grid length-actions">
+            <button class="tool" data-tool="length" style="grid-column:1/-1">Length <kbd>W</kbd></button>
+            <button id="reverse-line">Reverse</button>
+            <button id="clear-line">Clear</button>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>3. Export</legend>
+          <label for="quality">Image quality</label>
+          <select id="quality">
+            <option value="good">Good</option>
+            <option value="bad_perspective">Bad perspective</option>
+          </select>
+          <div id="finish-actions" style="margin-top:.7rem">
+            <button id="download">Download</button>
+            <button id="submit-review" hidden>Submit</button>
+          </div>
+        </fieldset>
+
+        <div id="editor-status" class="status" role="status"></div>
+      </aside>
+    </main>
+  </section>
+
+  <script src="/static/metadata.js"></script>
+  <script src="/static/public.js"></script>
+</body>
+</html>

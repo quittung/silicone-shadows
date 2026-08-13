@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 946,
-  "vendor": "Primal Hardwere",
-  "product_type": "OviAndEgg",
-  "name": "Brogoth",
   "quality": "good",
   "source": "alternative"
 }

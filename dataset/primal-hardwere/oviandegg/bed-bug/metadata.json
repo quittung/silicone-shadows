@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 945,
-  "vendor": "Primal Hardwere",
-  "product_type": "OviAndEgg",
-  "name": "Bed Bug",
   "quality": "good",
   "source": "catalog"
 }

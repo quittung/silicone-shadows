@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "catalog_id": 939,
-  "vendor": "Primal Hardwere",
-  "product_type": "OviAndEgg",
-  "name": "Bork",
   "quality": "bad_perspective",
   "source": "catalog"
 }

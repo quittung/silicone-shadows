@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Batch Outliner — Compare</title>
+  <title>Silicone Shadows — Compare</title>
   <style>
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --danger:#fb7185; }
     * { box-sizing:border-box; }
@@ -23,9 +23,9 @@
     button:hover, button.active { border-color:var(--accent); background:#263943; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
     #add, #add-filter { margin-top:.65rem; background:#164b56; border-color:#168da0; font-weight:650; }
-    #canvas-wrap { position:relative; min-width:0; min-height:0; background:#ecece8; }
+    #canvas-wrap { position:relative; min-width:0; min-height:0; background:#161a1f; }
     canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
-    #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:#59616a; pointer-events:none; }
+    #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); pointer-events:none; }
     #empty.hidden { display:none; }
     #layers { display:grid; gap:.4rem; }
     .layer { display:grid; grid-template-columns:auto 1fr auto; gap:.5rem; align-items:center; padding:.45rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; }
@@ -40,8 +40,8 @@
 </head>
 <body>
   <header>
-    <strong>Batch Outliner</strong>
-    <nav><a href="/">Review</a><a href="/stats">Stats</a><a class="active" href="/compare">Compare</a></nav>
+    <strong>Silicone Shadows</strong>
+    <nav><a href="/review">Review</a><a href="/stats">Stats</a><a class="active" href="/compare">Compare</a></nav>
   </header>
   <main>
     <aside>
@@ -319,8 +319,8 @@
 
     function drawGrid(width, height) {
       ctx.save();
-      ctx.strokeStyle = '#d3d5d2';
-      ctx.fillStyle = '#7b8288';
+      ctx.strokeStyle = '#2a3139';
+      ctx.fillStyle = '#7b8793';
       ctx.font = '11px system-ui';
       const unitsPerInch = metric ? 2.54 : 1;
       let stepUnits = 1;
@@ -359,10 +359,10 @@
       const x = width - pixels - 24;
       const y = height - 24;
       ctx.save();
-      ctx.fillStyle = 'rgb(255 255 255 / 82%)';
+      ctx.fillStyle = 'rgb(26 31 37 / 88%)';
       ctx.fillRect(x - 10, y - 25, pixels + 20, 39);
-      ctx.strokeStyle = '#30363b';
-      ctx.fillStyle = '#30363b';
+      ctx.strokeStyle = '#cbd5df';
+      ctx.fillStyle = '#cbd5df';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5);
@@ -384,7 +384,7 @@
       }
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#ecece8'; ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = '#161a1f'; ctx.fillRect(0, 0, width, height);
       drawGrid(width, height);
       ctx.setTransform(
         ratio * view.zoom, 0, 0, ratio * view.zoom,

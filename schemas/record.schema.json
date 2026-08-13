@@ -7,15 +7,13 @@
   "required": [
     "schema_version",
     "catalog_id",
-    "vendor",
-    "product_type",
-    "name",
     "quality",
     "source"
   ],
   "properties": {
     "schema_version": { "const": 1 },
-    "catalog_id": { "type": "integer" },
+    "record_id": { "type": "string", "minLength": 1 },
+    "catalog_id": { "type": ["integer", "null"] },
     "vendor": { "type": "string", "minLength": 1 },
     "product_type": { "type": "string", "minLength": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -24,6 +22,36 @@
     },
     "source": {
       "enum": ["catalog", "alternative"]
-    }
+    },
+    "product_url": { "type": ["string", "null"], "format": "uri" },
+    "species": { "type": ["string", "null"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "features": { "type": "array", "items": { "type": "string" } },
+    "sizes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "short_label", "unit"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "short_label": { "type": ["string", "null"] },
+          "price": { "type": ["number", "null"], "minimum": 0 },
+          "length": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "circumference": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "widest_circumference": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+          "widest_label": { "type": ["string", "null"] },
+          "unit": { "enum": ["in", "cm", "mm"] }
+        }
+      }
+    },
+    "notes": { "type": ["string", "null"] }
+  },
+  "if": { "properties": { "catalog_id": { "type": "null" } } },
+  "then": {
+    "required": [
+      "record_id", "vendor", "product_type", "name", "product_url", "species",
+      "tags", "features", "sizes", "notes"
+    ]
   }
 }

@@ -1,4 +1,6 @@
 import json
+import hashlib
+import ssl
 import sys
 import tempfile
 import time
@@ -13,7 +15,8 @@ import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from review import create_app, ensure_catalog
+from server import create_app, ensure_catalog
+from server.catalog import ROOT_YE_CERTIFICATE, ssl_context_for
 
 
 def png_bytes(image: Image.Image) -> bytes:
@@ -23,6 +26,16 @@ def png_bytes(image: Image.Image) -> bytes:
 
 
 class ReviewAppTest(unittest.TestCase):
+    def test_toybox_uses_verified_pinned_root(self) -> None:
+        context = ssl_context_for("https://fantasytoybox.net/data/products.json")
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(context.check_hostname)
+        certificate = ssl.PEM_cert_to_DER_cert(ROOT_YE_CERTIFICATE.read_text())
+        self.assertEqual(
+            hashlib.sha256(certificate).hexdigest(),
+            "e14ffcad5b0025731006caa43a121a22d8e9700f4fb9cf852f02a708aa5d5666",
+        )
+
     def test_catalog_source_is_downloaded_once(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -50,7 +63,7 @@ class ReviewAppTest(unittest.TestCase):
                 def read(self, _size=-1):
                     return catalog_data
 
-            with patch("review.urlopen", return_value=Response()) as download:
+            with patch("server.catalog.urlopen", return_value=Response()) as download:
                 catalog_path = ensure_catalog(descriptor)
                 self.assertEqual(
                     catalog_path,
@@ -80,8 +93,20 @@ class ReviewAppTest(unittest.TestCase):
                         for index in range(12)
                     ]
                     + [
-                        {"id": 12, "n": "Shared A", "vn": "Vendor", "pt": "Type", "pic": "images/a/shared.png"},
-                        {"id": 13, "n": "Shared B", "vn": "Vendor", "pt": "Type", "pic": "images/b/shared.png"},
+                        {
+                            "id": 12,
+                            "n": "Shared A",
+                            "vn": "Vendor",
+                            "pt": "Type",
+                            "pic": "images/a/shared.png",
+                        },
+                        {
+                            "id": 13,
+                            "n": "Shared B",
+                            "vn": "Vendor",
+                            "pt": "Type",
+                            "pic": "images/b/shared.png",
+                        },
                     ]
                 )
             )
@@ -107,7 +132,10 @@ class ReviewAppTest(unittest.TestCase):
             fake_rembg.new_session = lambda: object()
             fake_rembg.remove = lambda data, session: data
             with (
-                patch("review.urlopen", side_effect=lambda request, **_: Response(request)),
+                patch(
+                    "server.workspace.urlopen",
+                    side_effect=lambda request, **_: Response(request),
+                ),
                 patch.dict(sys.modules, {"rembg": fake_rembg}),
                 TestClient(
                     create_app(
@@ -232,7 +260,9 @@ class ReviewAppTest(unittest.TestCase):
                             "vn": "Vendor A",
                             "pt": "Type A",
                             "pic": "images/sample.jpg",
-                            "sz": {"s": [{"sl": "One size", "ShortLabel": "OS", "len": 6}]},
+                            "sz": {
+                                "s": [{"sl": "One size", "ShortLabel": "OS", "len": 6}]
+                            },
                         },
                         {
                             "id": 3,
@@ -240,7 +270,9 @@ class ReviewAppTest(unittest.TestCase):
                             "vn": "Vendor B",
                             "pt": "Type B",
                             "pic": "images/missing.jpg",
-                            "sz": {"s": [{"sl": "Medium", "ShortLabel": "M", "len": 7}]},
+                            "sz": {
+                                "s": [{"sl": "Medium", "ShortLabel": "M", "len": 7}]
+                            },
                         },
                     ]
                 )
@@ -258,6 +290,8 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertEqual(listing["done"], 0)
                 self.assertEqual(len(listing["items"][0]["products"]), 2)
                 self.assertIn("canvas", client.get("/").text)
+                self.assertEqual(client.get("/static/review.css").status_code, 200)
+                self.assertEqual(client.get("/static/review.js").status_code, 200)
                 self.assertEqual(client.get("/stats").status_code, 200)
                 self.assertEqual(client.get("/compare").status_code, 200)
 
@@ -290,7 +324,13 @@ class ReviewAppTest(unittest.TestCase):
                 response = client.post(
                     "/api/items/sample/save",
                     data={"state_json": json.dumps(state)},
-                    files={"edits": ("edits.png", png_bytes(Image.fromarray(edits)), "image/png")},
+                    files={
+                        "edits": (
+                            "edits.png",
+                            png_bytes(Image.fromarray(edits)),
+                            "image/png",
+                        )
+                    },
                 )
                 self.assertEqual(response.status_code, 200, response.text)
 
@@ -307,11 +347,15 @@ class ReviewAppTest(unittest.TestCase):
                 line = svg.find(".//svg:line[@id='main-length']", namespace)
                 self.assertIsNotNone(line)
                 self.assertEqual(line.attrib["display"], "none")
-                self.assertAlmostEqual(float(line.attrib["x1"]), float(line.attrib["x2"]))
+                self.assertAlmostEqual(
+                    float(line.attrib["x1"]), float(line.attrib["x2"])
+                )
                 self.assertAlmostEqual(
                     float(line.attrib["y1"]) - float(line.attrib["y2"]), 1
                 )
-                _, _, view_width, view_height = map(float, svg.attrib["viewBox"].split())
+                _, _, view_width, view_height = map(
+                    float, svg.attrib["viewBox"].split()
+                )
                 self.assertEqual(
                     max(float(svg.attrib["width"]), float(svg.attrib["height"])),
                     1000,
@@ -334,9 +378,6 @@ class ReviewAppTest(unittest.TestCase):
                         {
                             "schema_version",
                             "catalog_id",
-                            "vendor",
-                            "product_type",
-                            "name",
                             "quality",
                             "source",
                         },
@@ -360,7 +401,9 @@ class ReviewAppTest(unittest.TestCase):
 
                 comparison = client.get("/api/comparison/products").json()["products"]
                 self.assertEqual(len(comparison), 2)
-                self.assertEqual([size["label"] for size in comparison[0]["sizes"]], ["S", "L"])
+                self.assertEqual(
+                    [size["label"] for size in comparison[0]["sizes"]], ["S", "L"]
+                )
                 comparison_line = comparison[0]["main_length"]
                 self.assertAlmostEqual(
                     comparison_line["start"][0], comparison_line["end"][0]
@@ -437,10 +480,18 @@ class ReviewAppTest(unittest.TestCase):
                 with patch.dict(sys.modules, {"rembg": fake_rembg}):
                     response = client.post(
                         "/api/items/sample/alternative",
-                        files={"image": ("alternative.jpg", png_bytes(alternative), "image/png")},
+                        files={
+                            "image": (
+                                "alternative.jpg",
+                                png_bytes(alternative),
+                                "image/png",
+                            )
+                        },
                     )
                 self.assertEqual(response.status_code, 200, response.text)
-                self.assertEqual((response.json()["width"], response.json()["height"]), (32, 24))
+                self.assertEqual(
+                    (response.json()["width"], response.json()["height"]), (32, 24)
+                )
                 self.assertTrue((item_dir / "alternative.png").exists())
                 self.assertTrue((item_dir / "rembg.png").exists())
                 metadata = json.loads((item_dir / "metadata.json").read_text())
@@ -452,7 +503,9 @@ class ReviewAppTest(unittest.TestCase):
                     record = json.loads((directory / "metadata.json").read_text())
                     self.assertEqual(record["quality"], "unusable")
                     self.assertEqual(record["source"], "catalog")
-                self.assertTrue(client.get("/api/items").json()["items"][0]["has_alternative"])
+                self.assertTrue(
+                    client.get("/api/items").json()["items"][0]["has_alternative"]
+                )
 
                 response = client.post(
                     "/api/items/sample/save",
@@ -467,12 +520,16 @@ class ReviewAppTest(unittest.TestCase):
                 with patch.dict(sys.modules, {"rembg": fake_rembg}):
                     response = client.delete("/api/items/sample/alternative")
                 self.assertEqual(response.status_code, 200, response.text)
-                self.assertEqual((response.json()["width"], response.json()["height"]), (64, 48))
+                self.assertEqual(
+                    (response.json()["width"], response.json()["height"]), (64, 48)
+                )
                 self.assertFalse((item_dir / "alternative.png").exists())
                 metadata = json.loads((item_dir / "metadata.json").read_text())
                 self.assertEqual(metadata["status"], "pending")
                 self.assertIsNone(metadata["rating"])
-                self.assertFalse(client.get("/api/items").json()["items"][0]["has_alternative"])
+                self.assertFalse(
+                    client.get("/api/items").json()["items"][0]["has_alternative"]
+                )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Silicone Shadows — Moderation</title>
+  <style>
+    :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --bad:#fb7185; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); }
+    header { min-height:58px; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem; background:var(--panel); border-bottom:1px solid var(--border); }
+    header strong { margin-right:auto; }
+    nav { display:flex; gap:.35rem; }
+    nav a { color:var(--muted); text-decoration:none; padding:.4rem .6rem; border-radius:5px; }
+    nav a:hover,nav a.active { color:var(--text); background:#28313a; }
+    main { max-width:1100px; margin:auto; padding:1rem; }
+    #submissions { display:grid; gap:1rem; }
+    article { padding:1rem; border:1px solid var(--border); border-radius:9px; background:var(--panel); }
+    h2 { margin:0; font-size:1.2rem; }
+    .meta { color:var(--muted); margin:.2rem 0 .8rem; }
+    .images { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; min-height:15rem; }
+    .images.single { grid-template-columns:1fr; }
+    .images figure { margin:0; display:grid; grid-template-rows:auto minmax(0,1fr); }
+    figcaption { color:var(--muted); margin-bottom:.3rem; }
+    .images img { width:100%; height:24rem; object-fit:contain; border-radius:6px; background:#ecece8; }
+    .actions { display:flex; gap:.6rem; justify-content:flex-end; margin-top:.8rem; }
+    button { padding:.55rem .8rem; color:var(--text); border:1px solid var(--border); border-radius:6px; background:#252c34; cursor:pointer; }
+    button.approve { border-color:var(--good); } button.reject { border-color:var(--bad); }
+    #status { color:var(--muted); margin:.8rem 0; }
+    @media (max-width:700px) { .images { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>Silicone Shadows</strong>
+    <nav><a href="/review">Review</a><a href="/stats">Stats</a><a href="/compare">Compare</a><a class="active" href="/moderate">Moderate</a></nav>
+    <button id="logout">Log out</button>
+  </header>
+  <main>
+    <h1>Pending review</h1>
+    <div id="status" role="status">Loading…</div>
+    <section id="submissions"></section>
+  </main>
+  <script>
+    const target = document.querySelector('#submissions');
+    const status = document.querySelector('#status');
+
+    async function request(url, options={}) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        let message = `${response.status} ${response.statusText}`;
+        try { message = (await response.json()).detail || message; } catch (_) {}
+        throw new Error(message);
+      }
+      return response.status === 204 ? null : response.json();
+    }
+
+    document.querySelector('#logout').addEventListener('click', async () => {
+      await request('/api/logout', {method:'POST'});
+      location.href = '/';
+    });
+
+    async function decide(itemId, decision) {
+      if (!confirm(`${decision === 'approve' ? 'Approve' : 'Reject'} this submission?`)) return;
+      try {
+        await request(`/api/moderation/submissions/${encodeURIComponent(itemId)}/${decision}`, {method:'POST'});
+        await load();
+      } catch (error) { status.textContent = error.message; }
+    }
+
+    async function load() {
+      const data = await request('/api/moderation/submissions');
+      target.replaceChildren();
+      status.textContent = data.submissions.length ? `${data.submissions.length} pending` : 'Nothing is waiting for review.';
+      for (const item of data.submissions) {
+        const article = document.createElement('article');
+        const names = item.products.map(product => `${product.vendor} — ${product.name}`).join(' / ');
+        article.innerHTML = `<h2></h2><div class="meta"></div><div class="images"><figure><figcaption>Source</figcaption><img class="source" alt="Submitted source"></figure><figure class="outline-figure"><figcaption>Normalized outline</figcaption><img class="outline" alt="Submitted outline"></figure></div><div class="actions"><button class="reject">Reject</button><button class="approve">Approve</button></div>`;
+        article.querySelector('h2').textContent = names;
+        const source = item.kind === 'independent_update' ? 'metadata-only update' : `${item.source} source`;
+        article.querySelector('.meta').textContent = `${item.rating.replace('_',' ')} · ${source} · submitted by ${item.contributor}`;
+        if (item.source_url) article.querySelector('.source').src = item.source_url;
+        else {
+          article.querySelector('.source').closest('figure').remove();
+          article.querySelector('.images').classList.add('single');
+        }
+        if (item.outline_url) article.querySelector('.outline').src = item.outline_url;
+        else article.querySelector('.outline-figure').remove();
+        article.querySelector('.approve').addEventListener('click', () => decide(item.item_id, 'approve'));
+        article.querySelector('.reject').addEventListener('click', () => decide(item.item_id, 'reject'));
+        target.appendChild(article);
+      }
+    }
+
+    load().catch(error => { status.textContent = error.message; });
+  </script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+[Unit]
+Description=Silicone Shadows
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=silicone-shadows
+Group=silicone-shadows
+WorkingDirectory=APP_DIR
+Environment=HOME=/var/lib/silicone-shadows
+UMask=0077
+ExecStart=APP_DIR/.venv/bin/python -m server.cli --hosted --host 127.0.0.1 --port 8000 --trusted-host DOMAIN --input /var/lib/silicone-shadows/images --work /var/lib/silicone-shadows/work --database /var/lib/silicone-shadows/state.sqlite3 --pending /var/lib/silicone-shadows/pending --dataset /var/lib/silicone-shadows/dataset
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/silicone-shadows APP_DIR/.local
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
