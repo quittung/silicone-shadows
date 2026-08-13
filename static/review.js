@@ -97,7 +97,6 @@ async function refreshModerationCount() {
     const data = await api('/api/moderation/submissions');
     const count = data.submissions.length;
     $('#moderate-count').textContent = count;
-    $('#moderate-count').classList.toggle('has-items', count > 0);
     link.setAttribute('aria-label', `Moderate, ${count} pending`);
   } catch (_) {}
 }
