@@ -540,7 +540,10 @@ class Workspace:
             "read_only": True,
             "pending_review": pending,
             "provenance": metadata.get("source", "alternative"),
-            "svg_url": f"/api/community/{quote(record_id, safe='')}/outline.svg",
+            "svg_url": (
+                f"/api/community/{quote(record_id, safe='')}/outline.svg"
+                "?show_length=true&invert_colors=true"
+            ),
             "has_alternative": False,
             "claimed_by": None,
             "claim_expires_at": None,
@@ -733,6 +736,7 @@ class Workspace:
         else:
             svg_url = (
                 f"/api/products/{quote(str(svg_product['id']), safe='')}/outline.svg"
+                "?show_length=true&invert_colors=true"
                 if svg_product
                 else None
             )

@@ -132,7 +132,7 @@ class HostedAppTest(unittest.TestCase):
             [{"label": "One size", "short_label": "OS"}],
         )
         self.assertEqual(
-            anonymous.get("/review", follow_redirects=False).status_code, 303
+            anonymous.get("/editor", follow_redirects=False).status_code, 303
         )
         self.assertEqual(anonymous.get("/api/items").status_code, 401)
 
@@ -140,7 +140,8 @@ class HostedAppTest(unittest.TestCase):
         bob = self.login("Bob")
         moderator = self.login("Moderator", reviewer=True)
         self.assertEqual(alice.get("/api/session").json()["user"]["name"], "Alice")
-        self.assertIn("canvas", alice.get("/review").text)
+        self.assertIn("canvas", alice.get("/editor").text)
+        self.assertEqual(alice.get("/review").status_code, 404)
         self.assertEqual(alice.get("/moderate").status_code, 403)
         self.assertEqual(moderator.get("/moderate").status_code, 200)
         self.assertEqual(alice.get("/stats").status_code, 200)
@@ -278,6 +279,23 @@ class HostedAppTest(unittest.TestCase):
         self.assertFalse((self.pending_dir / "sample").exists())
         item = alice.get("/api/items").json()["items"][0]
         self.assertEqual(item["workflow_status"], "in_catalog")
+        self.assertIn("show_length=true", item["svg_url"])
+        catalog_preview = ET.fromstring(alice.get(item["svg_url"]).content)
+        catalog_line = next(
+            element
+            for element in catalog_preview.iter()
+            if element.get("id") == "main-length"
+        )
+        self.assertEqual(catalog_line.get("display"), "inline")
+        self.assertEqual(catalog_line.get("stroke"), "#0440db")
+        published_line = next(
+            element
+            for element in ET.parse(self.dataset_dir / "vendor/type/sample/outline.svg")
+            .getroot()
+            .iter()
+            if element.get("id") == "main-length"
+        )
+        self.assertEqual(published_line.get("display"), "none")
         summary = alice.get("/api/stats").json()["summary"]
         self.assertEqual(
             (

@@ -19,6 +19,7 @@ from ..artifacts import (
     atomic_image,
     atomic_json,
     final_mask,
+    length_preview,
     read_state,
     svg_main_length,
     validate_length,
@@ -92,16 +93,23 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         }
 
     @app.get("/api/community/{record_id}/outline.svg")
-    def independent_outline(record_id: str) -> FileResponse:
+    def independent_outline(
+        record_id: str,
+        show_length: bool = False,
+        invert_colors: bool = False,
+    ) -> Response:
         record = workspace.independent_records().get(record_id)
         path = record[1] / "outline.svg" if record else None
         if not path or not path.is_file():
             raise HTTPException(status_code=404, detail="outline does not exist")
-        return FileResponse(
-            path,
-            media_type="image/svg+xml",
-            headers={"Cache-Control": "no-store"},
-        )
+        headers = {"Cache-Control": "no-store"}
+        if show_length:
+            return Response(
+                length_preview(path, invert_colors),
+                media_type="image/svg+xml",
+                headers=headers,
+            )
+        return FileResponse(path, media_type="image/svg+xml", headers=headers)
 
     @app.post("/api/community/{record_id}/metadata")
     def submit_independent_metadata(
@@ -320,7 +328,11 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         )
 
     @app.get("/api/products/{catalog_id}/outline.svg")
-    def published_outline(catalog_id: str) -> FileResponse:
+    def published_outline(
+        catalog_id: str,
+        show_length: bool = False,
+        invert_colors: bool = False,
+    ) -> Response:
         product = workspace.catalog_by_id.get(catalog_id)
         published = workspace.published_record(product) if product else None
         if not published:
@@ -330,11 +342,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         path = published[1] / "outline.svg"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="product has no usable outline")
-        return FileResponse(
-            path,
-            media_type="image/svg+xml",
-            headers={"Cache-Control": "no-store"},
-        )
+        headers = {"Cache-Control": "no-store"}
+        if show_length:
+            return Response(
+                length_preview(path, invert_colors),
+                media_type="image/svg+xml",
+                headers=headers,
+            )
+        return FileResponse(path, media_type="image/svg+xml", headers=headers)
 
     @app.post("/api/items/{item_id}/alternative")
     async def replace_source(

@@ -1,60 +1,14 @@
 """Reviewer-only pending-submission routes."""
 
 import shutil
-import xml.etree.ElementTree as ET
-from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
+from ..artifacts import length_preview
 from ..models import IndependentSubmission, IndependentUpdate, ReviewState
 from ..workspace import Workspace
-
-SVG_NAMESPACE = "http://www.w3.org/2000/svg"
-
-
-def length_preview(path: Path) -> bytes:
-    root = ET.parse(path).getroot()
-    line = next(
-        (element for element in root.iter() if element.get("id") == "main-length"),
-        None,
-    )
-    if line is None:
-        return path.read_bytes()
-    line.attrib.update(
-        {
-            "display": "inline",
-            "stroke": "#fbbf24",
-            "stroke-width": "0.008",
-            "stroke-linecap": "round",
-        }
-    )
-    ET.SubElement(
-        root,
-        f"{{{SVG_NAMESPACE}}}circle",
-        {
-            "cx": line.get("x1"),
-            "cy": line.get("y1"),
-            "r": "0.014",
-            "fill": "#fbbf24",
-        },
-    )
-    tip_x, tip_y = float(line.get("x2")), float(line.get("y2"))
-    ET.SubElement(
-        root,
-        f"{{{SVG_NAMESPACE}}}polygon",
-        {
-            "id": "main-length-tip",
-            "points": (
-                f"{tip_x - 0.025},{tip_y + 0.05} "
-                f"{tip_x},{tip_y} {tip_x + 0.025},{tip_y + 0.05}"
-            ),
-            "fill": "#fbbf24",
-        },
-    )
-    ET.register_namespace("", SVG_NAMESPACE)
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
 
 
 def register(app: FastAPI, workspace: Workspace) -> None:

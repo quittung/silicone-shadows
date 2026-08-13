@@ -91,8 +91,8 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
     def index() -> FileResponse:
         return static_page("public.html" if store else "index.html")
 
-    @app.get("/review")
-    def review_page() -> FileResponse:
+    @app.get("/editor")
+    def editor_page() -> FileResponse:
         return static_page("index.html")
 
     @app.get("/stats")

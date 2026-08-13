@@ -13,6 +13,8 @@ from outline import largest_component
 
 from .models import MainLength, ReviewState
 
+SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+
 
 def atomic_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,3 +108,47 @@ def svg_main_length(svg_path: Path) -> MainLength:
         start=(float(line.get("x1")), float(line.get("y1"))),
         end=(float(line.get("x2")), float(line.get("y2"))),
     )
+
+
+def length_preview(path: Path, invert_colors: bool = False) -> bytes:
+    root = ET.parse(path).getroot()
+    line = next(
+        (element for element in root.iter() if element.get("id") == "main-length"),
+        None,
+    )
+    if line is None:
+        return path.read_bytes()
+    color = "#0440db" if invert_colors else "#fbbf24"
+    line.attrib.update(
+        {
+            "display": "inline",
+            "stroke": color,
+            "stroke-width": "0.008",
+            "stroke-linecap": "round",
+        }
+    )
+    ET.SubElement(
+        root,
+        f"{{{SVG_NAMESPACE}}}circle",
+        {
+            "cx": line.get("x1"),
+            "cy": line.get("y1"),
+            "r": "0.014",
+            "fill": color,
+        },
+    )
+    tip_x, tip_y = float(line.get("x2")), float(line.get("y2"))
+    ET.SubElement(
+        root,
+        f"{{{SVG_NAMESPACE}}}polygon",
+        {
+            "id": "main-length-tip",
+            "points": (
+                f"{tip_x - 0.025},{tip_y + 0.05} "
+                f"{tip_x},{tip_y} {tip_x + 0.025},{tip_y + 0.05}"
+            ),
+            "fill": color,
+        },
+    )
+    ET.register_namespace("", SVG_NAMESPACE)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)

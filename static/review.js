@@ -62,7 +62,7 @@ function loadImage(url, cacheBust = true) {
 }
 
 async function loadPublishedSvg(url) {
-  const response = await fetch(`${url}?v=${Date.now()}`);
+  const response = await fetch(`${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`);
   if (!response.ok) throw new Error('Could not load published SVG');
   const document = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
   const root = document.documentElement;
