@@ -37,16 +37,19 @@ catalog or its images.
 
 ## Quick start
 
-If you have a coding agent available, you can simply ask it to **set up this
-repository and start the local review app**. It does not need to inspect any of
-the product images to do that.
+The quickest way to contribute or create an outline for your own product is the
+[hosted version of this app](https://shadows.qtng.dev/). Guests can create and
+download their own entries, and contributors can submit their work to be included in
+catalog. Contribution requires an invitation; contact `qtng` on Discord.
 
-For manual installation and platform-specific prerequisites, see
-[Contributing and local setup](docs/contributing.md).
+You can instead run the app locally and contribute through Git. With a coding
+agent, ask it to **set up this repository and start the local review app**; it
+does not need to inspect any product images. For manual installation and
+platform-specific prerequisites, see
+[Contributing and local setup](docs/contributing.md). Then:
 
-1. Clone and set up the project using the linked guide.
-2. Review as many entries as you like; progress is retained locally.
-3. Commit the changed files under `dataset/` and open a pull request.
+1. Review as many entries as you like; progress is retained locally.
+2. Commit the changed files under `dataset/` and open a pull request.
 
 Pull before starting a large batch where practical, and avoid changing another
 contributor's record unless you are deliberately improving it. Source-code
