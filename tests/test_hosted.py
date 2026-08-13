@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import types
@@ -16,6 +17,8 @@ from PIL import Image
 
 from server import create_app
 from server.hosted import ClaimError, HostedStore, PublicQueue, QueueError
+from server.models import ReviewState
+from server.workspace import Workspace
 
 
 def png_bytes(image: Image.Image) -> bytes:
@@ -145,6 +148,8 @@ class HostedAppTest(unittest.TestCase):
 
         item = alice.get("/api/items").json()["items"][0]
         self.assertEqual(item["workflow_status"], "never_worked")
+        selected = alice.post("/api/prefetch", json={"item_ids": ["sample"]})
+        self.assertEqual(selected.json(), {"selected": 1})
         prepared = alice.post("/api/items/sample/prepare")
         self.assertEqual(prepared.status_code, 200, prepared.text)
         self.assertIsNotNone(prepared.json()["claim_expires_at"])
@@ -208,7 +213,9 @@ class HostedAppTest(unittest.TestCase):
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
         self.assertTrue(submitted.json()["pending_review"])
-        self.assertFalse((self.work_dir / "sample").exists())
+        self.assertTrue((self.work_dir / "sample/source.png").is_file())
+        self.assertTrue((self.work_dir / "sample/rembg.png").is_file())
+        self.assertFalse((self.work_dir / "sample/metadata.json").exists())
         self.assertTrue((self.pending_dir / "sample/metadata.json").exists())
         self.assertTrue((self.pending_dir / "sample/outline.svg").exists())
         self.assertEqual(
@@ -257,6 +264,106 @@ class HostedAppTest(unittest.TestCase):
             ),
             (0, 0, 1),
         )
+
+        cached_rembg = (self.work_dir / "sample/rembg.png").read_bytes()
+        with patch.object(
+            self.app.state.workspace,
+            "remove_background",
+            side_effect=AssertionError("re-review should reuse the cached mask"),
+        ):
+            rereview = alice.post("/api/items/sample/rereview")
+            self.assertEqual(rereview.status_code, 200, rereview.text)
+            reopened = alice.post("/api/items/sample/prepare")
+            self.assertEqual(reopened.status_code, 200, reopened.text)
+        self.assertEqual(
+            (self.work_dir / "sample/rembg.png").read_bytes(), cached_rembg
+        )
+        released = alice.post("/api/items/sample/release")
+        self.assertEqual(released.status_code, 204, released.text)
+        self.assertTrue((self.work_dir / "sample/source.png").is_file())
+        self.assertTrue((self.work_dir / "sample/rembg.png").is_file())
+        self.assertFalse((self.work_dir / "sample/metadata.json").exists())
+
+    def test_abandoned_alternative_upload_is_deleted(self) -> None:
+        alice = self.login("Alice")
+        self.assertEqual(alice.post("/api/items/sample/prepare").status_code, 200)
+        alternative = png_bytes(Image.new("RGB", (20, 16), "black"))
+        masked = png_bytes(Image.new("RGBA", (20, 16), (0, 0, 0, 255)))
+        with patch.object(
+            self.app.state.workspace, "remove_background", return_value=masked
+        ):
+            uploaded = alice.post(
+                "/api/items/sample/alternative",
+                files={"image": ("alternative.png", alternative, "image/png")},
+            )
+        self.assertEqual(uploaded.status_code, 200, uploaded.text)
+        self.assertTrue((self.work_dir / "sample/alternative.png").is_file())
+        self.assertEqual(alice.post("/api/items/sample/release").status_code, 204)
+        self.assertFalse((self.work_dir / "sample").exists())
+
+    def test_hosted_prefetch_is_fair_and_lru_protects_claims(self) -> None:
+        root = self.root / "multi"
+        input_dir = root / "images"
+        work_dir = root / "work"
+        dataset_dir = root / "dataset"
+        pending_dir = root / "pending"
+        input_dir.mkdir(parents=True)
+        catalog_path = root / "products.json"
+        catalog_path.write_text(
+            json.dumps(
+                [
+                    {
+                        "id": index,
+                        "n": f"Item {index}",
+                        "vn": "Vendor",
+                        "pt": "Type",
+                        "pic": f"images/item-{index}.png",
+                    }
+                    for index in range(6)
+                ]
+            )
+        )
+        for index in range(6):
+            path = input_dir / f"item-{index}.png"
+            Image.new("RGB", (8, 8), "white").save(path)
+            os.utime(path, ns=(index + 1, index + 1))
+
+        store = HostedStore(root / "state.sqlite3")
+        workspace = Workspace(
+            input_dir,
+            work_dir,
+            catalog_path,
+            "https://images.example/",
+            dataset_dir,
+            store,
+            pending_dir,
+        )
+        _, alice = store.redeem_invite(store.create_invite("Alice"))
+        _, bob = store.redeem_invite(store.create_invite("Bob"))
+        workspace.select_prefetch(alice.id, ["item-0", "item-1", "item-2"])
+        workspace.select_prefetch(bob.id, ["item-3", "item-4", "item-5"])
+        store.acquire_claim("item-1", bob)
+        store.put_submission(
+            "item-4",
+            alice,
+            "catalog",
+            ReviewState(status="done", rating="unusable").model_dump_json(),
+        )
+        self.assertEqual(
+            workspace._prefetch_window(),
+            ["item-0", "item-3", "item-2", "item-5"],
+        )
+
+        workspace.select_prefetch(alice.id, [])
+        workspace.select_prefetch(bob.id, [])
+        with patch("server.workspace.PREFETCH_CACHE_LIMIT", 2):
+            workspace._prune_catalog_cache()
+        remaining = {
+            item_id
+            for item_id, path in workspace.catalog_sources.items()
+            if path.exists()
+        }
+        self.assertEqual(remaining, {"item-1", "item-5"})
 
     def test_signed_in_independent_product_can_be_moderated(self) -> None:
         guest = TestClient(self.app)

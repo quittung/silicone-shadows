@@ -19,7 +19,7 @@ class ReviewState(BaseModel):
 
 
 class PrefetchSelection(BaseModel):
-    item_ids: list[str] = Field(max_length=10_000)
+    item_ids: list[str] = Field(max_length=5)
 
 
 class PublicTicket(BaseModel):
@@ -46,9 +46,7 @@ class GuestMetadata(BaseModel):
     product_url: HttpUrl | None = None
     species: str | None = Field(default=None, max_length=100)
     quality: Literal["good", "bad_perspective"] = "good"
-    source: Literal["contributor_photo", "catalog", "alternative"] = (
-        "contributor_photo"
-    )
+    source: Literal["contributor_photo", "catalog", "alternative"] = "contributor_photo"
     tags: list[str] = Field(default_factory=list, max_length=100)
     features: list[str] = Field(default_factory=list, max_length=50)
     sizes: list[GuestSize] = Field(default_factory=list, max_length=20)

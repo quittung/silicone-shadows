@@ -160,6 +160,7 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
     def logout(request: Request) -> Response:
         if store:
             if request.state.user:
+                workspace.select_prefetch(request.state.user.id, [])
                 store.release_claims(request.state.user, discard=workspace.discard_work)
             store.logout(request.cookies.get(SESSION_COOKIE))
         response = Response(status_code=204)

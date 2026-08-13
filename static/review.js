@@ -99,12 +99,37 @@ function visibleItems() {
   });
 }
 
-async function syncPrefetch(visible = visibleItems()) {
+function prefetchPriority(visible = visibleItems(), currentId = current?.id) {
+  if (!currentId) return [];
+  const eligible = item =>
+    !item.independent && item.workflow_status === 'never_worked' && !item.claimed_by;
+  const currentItem = items.find(item => item.id === currentId);
+  if (!currentItem || !eligible(currentItem)) return [];
+
+  const priority = [currentItem];
+  const candidates = visible.filter(eligible);
+  const index = candidates.findIndex(item => item.id === currentId);
+  if (index >= 0 && candidates.length > 1) {
+    for (const offset of [1, -1, 2, -2]) {
+      const candidate = candidates[
+        (index + offset + candidates.length) % candidates.length
+      ];
+      if (!priority.some(item => item.id === candidate.id)) {
+        priority.push(candidate);
+      }
+    }
+  }
+  return priority.slice(0, 5);
+}
+
+async function syncPrefetch(visible = visibleItems(), currentId = current?.id) {
   try {
     await api('/api/prefetch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item_ids: visible.map(item => item.id) }),
+      body: JSON.stringify({
+        item_ids: prefetchPriority(visible, currentId).map(item => item.id),
+      }),
     });
   } catch (error) {
     setStatus(`Could not update prefetch queue: ${error.message}`, true);
@@ -236,14 +261,16 @@ async function applyFilters() {
   }
   const visible = visibleItems();
   refreshProgressText();
-  await syncPrefetch(visible);
   if (!visible.length) {
     await releaseCurrentClaim();
+    await syncPrefetch([], null);
     return showEmptyState();
   }
   $('#empty-state').classList.remove('visible');
   if (!current || !visible.some(item => item.id === current.id)) {
     await loadItem(visible[0].id);
+  } else {
+    await syncPrefetch(visible, current.id);
   }
 }
 
@@ -260,6 +287,7 @@ async function loadItem(itemId) {
   $('#empty-state').classList.remove('visible');
   const listed = items.find(item => item.id === itemId);
   if (listed?.read_only) {
+    await syncPrefetch([], null);
     await showPublishedItem(listed);
     return;
   }
@@ -309,6 +337,7 @@ async function loadItem(itemId) {
     fitView();
     setStatus(hostedMode ? 'Claimed for up to 15 minutes' :
       state.status === 'done' ? 'Completed' : 'Draft autosaves locally');
+    await syncPrefetch(visibleItems(), itemId);
   } catch (error) {
     if (hostedMode) {
       current = state = sourceImage = rembgImage = null;
@@ -336,7 +365,6 @@ async function uploadAlternative(file) {
   try {
     await api(`/api/items/${encodeURIComponent(itemId)}/alternative`, { method: 'POST', body: form });
     await refreshItems();
-    await syncPrefetch(visibleItems());
     await loadItem(itemId);
     setStatus('Alternative image active');
   } catch (error) {
@@ -358,7 +386,6 @@ async function resetToCatalog() {
   try {
     await api(`/api/items/${encodeURIComponent(itemId)}/alternative`, { method: 'DELETE' });
     await refreshItems();
-    await syncPrefetch(visibleItems());
     await loadItem(itemId);
     setStatus('Catalog image restored');
   } catch (error) {
@@ -377,7 +404,6 @@ async function rereview() {
   try {
     await api(`/api/items/${encodeURIComponent(itemId)}/rereview`, { method: 'POST' });
     await refreshItems();
-    await syncPrefetch(visibleItems());
     await loadItem(itemId);
   } catch (error) {
     setStatus(error.message, true);
@@ -713,8 +739,8 @@ async function saveAndNext() {
     await refreshItems();
   } catch (_) { return; }
   const candidates = visibleItems();
-  await syncPrefetch(candidates);
   if (!candidates.length) {
+    await syncPrefetch([], null);
     showEmptyState();
     return setStatus(hostedMode ? 'Submitted for review' : 'Queue complete');
   }
@@ -1056,7 +1082,6 @@ try {
     }
     await refreshItems();
     const visible = visibleItems();
-    await syncPrefetch(visible);
     const first = visible[0];
     if (first) await loadItem(first.id);
     else showEmptyState();

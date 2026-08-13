@@ -148,11 +148,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         return {"item_id": item_id, "status": "pending_review"}
 
     @app.post("/api/prefetch")
-    def select_prefetch(selection: PrefetchSelection) -> dict:
-        if store:
-            return {"selected": 0}
+    def select_prefetch(selection: PrefetchSelection, request: Request) -> dict:
+        owner_id = request.state.user.id if store else 0
         try:
-            selected = workspace.select_prefetch(selection.item_ids)
+            selected = workspace.select_prefetch(owner_id, selection.item_ids)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return {"selected": selected}
@@ -254,6 +253,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
     def release_claim(item_id: str, request: Request) -> Response:
         if store:
             workspace.require_item(item_id)
+            workspace.select_prefetch(request.state.user.id, [])
             store.release_claims(request.state.user, item_id, workspace.discard_work)
         return Response(status_code=204)
 
@@ -272,6 +272,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             )
         if store:
             claim_expires_at = acquire_claim(item_id, request.state.user)
+            workspace.select_prefetch(request.state.user.id, [item_id])
         else:
             workspace.set_active(item_id)
         paths, width, height = workspace.prepare(item_id)
@@ -299,13 +300,20 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             raise HTTPException(status_code=400, detail="item is not published")
         if store:
             acquire_claim(item_id, request.state.user)
+            workspace.select_prefetch(request.state.user.id, [item_id])
             workspace.discard_work(item_id)
         else:
             workspace.set_active(item_id)
         source = workspace.source_for(item_id)
         paths = workspace.paths(item_id)
         with workspace.session_lock:
-            workspace.reset_review(paths, item_id, source.name, re_review=True)
+            workspace.reset_review(
+                paths,
+                item_id,
+                source.name,
+                re_review=True,
+                keep_prepared=True,
+            )
         claims = store.claims() if store else {}
         return workspace.item_summary(
             item_id, workspace.queue_items()[item_id], request.state.user, claims
@@ -590,6 +598,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             except Exception:
                 shutil.rmtree(pending["directory"])
                 raise
+            workspace.select_prefetch(request.state.user.id, [])
             workspace.discard_work(item_id)
         else:
             atomic_json(paths["metadata"], document)

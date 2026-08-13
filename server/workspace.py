@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 from io import BytesIO
@@ -29,6 +30,7 @@ SOURCE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 RATINGS = {"unusable", "bad_perspective", "good"}
 PREFETCH_LOW_WATER = 2
 PREFETCH_HIGH_WATER = 10
+PREFETCH_CACHE_LIMIT = 50
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_PIXELS = 25_000_000
 ALLOWED_IMAGE_FORMATS = {"BMP", "JPEG", "PNG", "TIFF", "WEBP"}
@@ -195,9 +197,10 @@ class Workspace:
         self._image_ssl_context = ssl_context_for(image_base_url or "")
         self.session_lock = threading.RLock()
         self._download_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
         self._active_lock = threading.Lock()
         self._active_id: str | None = None
-        self._prefetch_ids: list[str] | None = None
+        self._prefetch_ids: dict[int, list[str]] | None = {} if hosted_store else None
         self._prefetch_wake = threading.Event()
         self._prefetch_stop = threading.Event()
         self.public_queue = PublicQueue() if hosted_store else None
@@ -247,11 +250,71 @@ class Workspace:
 
     def discard_work(self, item_id: str) -> None:
         try:
-            directory = item_paths(self.work_dir, item_id)["directory"]
+            paths = item_paths(self.work_dir, item_id)
         except ValueError:
             return
-        if directory.is_dir():
-            shutil.rmtree(directory)
+        with self._cache_lock:
+            keep_catalog_cache = (
+                item_id in self.catalog_sources
+                and not paths["alternative"].exists()
+                and paths["source"].is_file()
+                and paths["rembg"].is_file()
+            )
+            if keep_catalog_cache:
+                for kind in ("edits", "mask", "cutout", "svg", "metadata"):
+                    paths[kind].unlink(missing_ok=True)
+                os.utime(paths["directory"])
+            elif paths["directory"].is_dir():
+                shutil.rmtree(paths["directory"])
+
+    def _prefetch_protected(self) -> set[str]:
+        with self._active_lock:
+            selected = self._prefetch_ids
+            protected = {self._active_id} if self._active_id else set()
+            if selected is not None:
+                protected.update(
+                    item_id for item_ids in selected.values() for item_id in item_ids
+                )
+        if self.hosted_store:
+            protected.update(self.hosted_store.claims())
+        return protected
+
+    def _prune_catalog_cache(self) -> None:
+        entries = []
+        for item_id, catalog_source in self.catalog_sources.items():
+            paths = self.paths(item_id)
+            candidates = [
+                path for path in (catalog_source, paths["directory"]) if path.exists()
+            ]
+            if candidates:
+                entries.append(
+                    (max(path.stat().st_mtime_ns for path in candidates), item_id)
+                )
+        excess = len(entries) - PREFETCH_CACHE_LIMIT
+        if excess <= 0:
+            return
+        protected = self._prefetch_protected()
+        with self._cache_lock:
+            for _, item_id in sorted(entries):
+                if excess <= 0:
+                    break
+                if item_id in protected:
+                    continue
+                paths = self.paths(item_id)
+                if paths["directory"].is_dir():
+                    shutil.rmtree(paths["directory"])
+                if self.hosted_store:
+                    self.catalog_sources[item_id].unlink(missing_ok=True)
+                excess -= 1
+
+    def _touch_catalog_cache(self, item_id: str) -> None:
+        if item_id not in self.catalog_sources:
+            return
+        paths = self.paths(item_id)
+        with self._cache_lock:
+            if paths["directory"].is_dir():
+                os.utime(paths["directory"])
+        self._prune_catalog_cache()
 
     def remove_background(self, data: bytes) -> bytes:
         from rembg import new_session, remove
@@ -351,6 +414,7 @@ class Workspace:
 
         with Image.open(paths["rembg"]) as image:
             width, height = image.size
+        self._touch_catalog_cache(item_id)
         return paths, width, height
 
     def unpublish(self, item_id: str) -> None:
@@ -576,10 +640,18 @@ class Workspace:
         return new_directory
 
     def reset_review(
-        self, paths: dict[str, Path], item_id: str, source: str, re_review: bool = False
+        self,
+        paths: dict[str, Path],
+        item_id: str,
+        source: str,
+        re_review: bool = False,
+        keep_prepared: bool = False,
     ) -> None:
         threshold = read_state(paths["metadata"]).alpha_threshold
-        for kind in ("source", "rembg", "edits", "mask", "cutout", "svg"):
+        kinds = ("edits", "mask", "cutout", "svg")
+        if not keep_prepared:
+            kinds = ("source", "rembg", *kinds)
+        for kind in kinds:
             paths[kind].unlink(missing_ok=True)
         state = ReviewState(alpha_threshold=threshold, re_review=re_review)
         atomic_json(
@@ -760,14 +832,19 @@ class Workspace:
             self._active_id = item_id
         self._prefetch_wake.set()
 
-    def select_prefetch(self, item_ids: list[str]) -> int:
+    def select_prefetch(self, owner_id: int, item_ids: list[str]) -> int:
         known = set(self.queue_items())
         unique_ids = list(dict.fromkeys(item_ids))
         unknown = [item_id for item_id in unique_ids if item_id not in known]
         if unknown:
             raise ValueError(f"unknown item: {unknown[0]}")
         with self._active_lock:
-            self._prefetch_ids = unique_ids
+            if self._prefetch_ids is None:
+                self._prefetch_ids = {}
+            if unique_ids:
+                self._prefetch_ids[owner_id] = unique_ids
+            else:
+                self._prefetch_ids.pop(owner_id, None)
         self._prefetch_wake.set()
         return len(unique_ids)
 
@@ -775,19 +852,61 @@ class Workspace:
         with self._active_lock:
             current_id = self._active_id
             selected_ids = (
-                None if self._prefetch_ids is None else list(self._prefetch_ids)
+                None
+                if self._prefetch_ids is None
+                else {
+                    owner_id: list(item_ids)
+                    for owner_id, item_ids in self._prefetch_ids.items()
+                }
             )
         items = self.queue_items()
-        ordered = selected_ids if selected_ids is not None else list(items)
-        if current_id in ordered:
-            index = ordered.index(current_id)
-            ordered = ordered[index + 1 :] + ordered[:index]
-        return [
-            item_id
-            for item_id in ordered
-            if item_id != current_id
-            and self.item_summary(item_id, items[item_id])["status"] != "done"
-        ][:PREFETCH_HIGH_WATER]
+        if selected_ids is None:
+            ordered = [(0, item_id) for item_id in items]
+            if current_id in items:
+                index = next(
+                    index
+                    for index, (_, item_id) in enumerate(ordered)
+                    if item_id == current_id
+                )
+                ordered = ordered[index + 1 :] + ordered[:index]
+            limit = PREFETCH_HIGH_WATER
+        else:
+            ordered = []
+            depth = max(
+                (len(item_ids) for item_ids in selected_ids.values()), default=0
+            )
+            for index in range(depth):
+                ordered.extend(
+                    (owner_id, item_ids[index])
+                    for owner_id, item_ids in selected_ids.items()
+                    if index < len(item_ids)
+                )
+            limit = PREFETCH_CACHE_LIMIT
+
+        claims = self.hosted_store.claims() if self.hosted_store else {}
+        submissions = (
+            {row["item_id"]: row for row in self.hosted_store.submissions()}
+            if self.hosted_store
+            else {}
+        )
+        window = []
+        for owner_id, item_id in ordered:
+            if item_id in window or item_id == current_id:
+                continue
+            user = User(owner_id, "", False) if self.hosted_store else None
+            summary = self.item_summary(
+                item_id,
+                items[item_id],
+                user,
+                claims,
+                submissions,
+            )
+            if summary["workflow_status"] != "never_worked" or summary["claimed_by"]:
+                continue
+            window.append(item_id)
+            if len(window) >= limit:
+                break
+        return window
 
     def prefetch_worker(self) -> None:
         while not self._prefetch_stop.is_set():
@@ -798,7 +917,7 @@ class Workspace:
             try:
                 window = self._prefetch_window()
                 ready = sum(self.paths(item_id)["rembg"].exists() for item_id in window)
-                if ready >= PREFETCH_LOW_WATER:
+                if not self.hosted_store and ready >= PREFETCH_LOW_WATER:
                     continue
                 for item_id in window:
                     if self._prefetch_stop.is_set():
@@ -813,8 +932,6 @@ class Workspace:
                 print(f"Mask prefetch failed: {error}", flush=True)
 
     def start_prefetch(self) -> threading.Thread | None:
-        if self.hosted_store:
-            return None
         worker = threading.Thread(
             target=self.prefetch_worker, name="mask-prefetch", daemon=True
         )
