@@ -690,9 +690,8 @@ function markDirty(paint = false) {
 function refreshProgressText() {
   const matching = visibleItems();
   if (hostedMode) {
-    const pending = items.filter(item => item.workflow_status === 'pending_review').length;
     const catalog = items.filter(item => item.workflow_status === 'in_catalog').length;
-    $('#progress').textContent = `${matching.length} matching · ${pending} pending review · ${catalog} in catalog`;
+    $('#progress').textContent = `${matching.length} matching · ${catalog} in catalog`;
     return;
   }
   const done = matching.filter(item => item.status === 'done').length;
