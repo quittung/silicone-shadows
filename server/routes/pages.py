@@ -116,9 +116,14 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
             raise HTTPException(status_code=404)
         return HTMLResponse(
             "<!doctype html><meta name=viewport content='width=device-width'>"
-            "<title>Accept invitation</title><link rel=stylesheet href=/static/public.css>"
+            "<title>Accept invitation</title><link rel=stylesheet href=/static/public.css?v=20260813-1>"
             "<body class=invite-page><main class=invite-card>"
             "<h1>Silicone Shadows</h1><p>Accept this one-use contributor invitation?</p>"
+            "<p class=invite-terms>By accepting, you agree that any work you submit "
+            "will be dedicated under <a href='https://creativecommons.org/publicdomain/zero/1.0/' "
+            "rel=noreferrer>CC0 1.0 Universal</a>, to the extent you hold copyright, "
+            "related rights, or database rights in it. Only submit material you have "
+            "the right to contribute.</p>"
             f"<form method=post action='/invite/{html.escape(token, quote=True)}'>"
             "<button class=primary>Accept invitation</button></form></main>"
         )
@@ -131,7 +136,7 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
         if not redeemed:
             return HTMLResponse(
                 "<!doctype html><meta name=viewport content='width=device-width'>"
-                "<title>Invalid invitation</title><link rel=stylesheet href=/static/public.css>"
+                "<title>Invalid invitation</title><link rel=stylesheet href=/static/public.css?v=20260813-1>"
                 "<body class=invite-page><main class=invite-card>"
                 "<h1>This invite is invalid, expired, or already used.</h1></main>",
                 400,

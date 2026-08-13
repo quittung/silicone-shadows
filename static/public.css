@@ -28,6 +28,8 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .invite-card form { margin-top: 1rem; }
 .invite-card .primary { padding: .7rem .9rem; border-color: #168da0; background: #164b56; }
+.invite-card a { color: var(--accent); }
+.invite-terms { font-size: .9rem; }
 
 #upload-screen { min-height: 100dvh; display: grid; place-items: center; padding: 1rem; }
 #upload-card {

@@ -92,6 +92,8 @@ class HostedAppTest(unittest.TestCase):
         client = TestClient(self.app)
         landing = client.get(f"/invite/{token}")
         self.assertIn("Accept invitation", landing.text)
+        self.assertIn("CC0 1.0 Universal", landing.text)
+        self.assertIn("Only submit material you have the right", landing.text)
         response = client.post(f"/invite/{token}", follow_redirects=False)
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/")
