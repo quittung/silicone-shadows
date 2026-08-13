@@ -49,6 +49,23 @@ After inspecting the generated files under `dist/`, create a GitHub draft with:
 .venv/bin/python release_dataset.py v0.1.0 --draft
 ```
 
+For a hosted deployment, put its SSH destination in the ignored `.env` file:
+
+```dotenv
+SILICONE_SHADOWS_SERVER=example.com
+SILICONE_SHADOWS_USER=root
+```
+
+Then sync approved records, commit them, push, and create the verified draft in
+one run:
+
+```sh
+.venv/bin/python release_dataset.py v0.5.0 --sync-hosted --push --draft
+```
+
+Omit `--push --draft` to sync, commit, and build the archive locally. Syncing
+requires a clean checkout and mirrors the server dataset, including deletions.
+
 The script validates every record and SVG before upload. It then downloads the
 draft assets again and verifies their checksum, manifest version and commit,
 license, and rights notice. Publication remains a manual action on GitHub.
