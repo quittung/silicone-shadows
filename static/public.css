@@ -42,7 +42,7 @@ p { color: var(--muted); }
 .landing-header { padding: 0; border: 0; background: transparent; }
 .landing-header p { margin: 0; }
 #choices { display: grid; gap: .8rem; margin-top: 1.2rem; }
-.guest-contact { margin: 1rem 0 0; text-align: center; }
+.guest-contact { margin: 1rem 0 0; }
 .choice {
   display: grid; gap: .35rem; padding: 1rem; border: 1px solid var(--border);
   border-radius: 8px; background: #20262d; color: var(--text); text-decoration: none;
