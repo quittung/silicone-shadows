@@ -8,8 +8,8 @@
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --danger:#fb7185; }
     * { box-sizing:border-box; }
     body { margin:0; height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; background:var(--bg); color:var(--text); }
-    main { display:grid; grid-template-columns:330px minmax(0,1fr); min-height:0; }
-    aside { overflow-y:auto; padding:.8rem; background:var(--panel); border-right:1px solid var(--border); }
+    main { display:grid; grid-template-columns:minmax(0,1fr) 330px; min-height:0; }
+    aside { grid-column:2; grid-row:1; overflow-y:auto; padding:.8rem; background:var(--panel); border-left:1px solid var(--border); }
     fieldset { margin:0 0 .8rem; padding:.65rem; border:1px solid var(--border); border-radius:7px; }
     legend { padding:0 .35rem; color:var(--muted); }
     label { display:block; margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }
@@ -17,8 +17,18 @@
     button { cursor:pointer; }
     button:hover, button.active { border-color:var(--accent); background:#263943; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
+    .filters { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
+    .filters #search { grid-column:1/-1; }
+    .filters #size-filter { grid-column:1/-1; }
+    .section-label { margin:0 0 .45rem; color:var(--muted); font-size:.86rem; }
+    .divider { display:flex; align-items:center; gap:.55rem; margin:.9rem 0 .2rem; color:var(--muted); font-size:.8rem; }
+    .divider::before, .divider::after { content:""; height:1px; flex:1; background:var(--border); }
+    .segmented { display:grid; grid-template-columns:1fr 1fr; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
+    .segmented button { border:0; border-radius:0; background:#20262d; }
+    .segmented button + button { border-left:1px solid var(--border); }
+    .segmented button.active { background:#164b56; }
     #add, #add-filter { margin-top:.65rem; background:#164b56; border-color:#168da0; font-weight:650; }
-    #canvas-wrap { position:relative; min-width:0; min-height:0; background:#161a1f; }
+    #canvas-wrap { grid-column:1; grid-row:1; position:relative; min-width:0; min-height:0; background:#161a1f; }
     canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
     #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); pointer-events:none; }
     #empty.hidden { display:none; }
@@ -42,23 +52,34 @@
   <main>
     <aside>
       <fieldset>
-        <legend>Add product size</legend>
-        <input id="search" type="search" placeholder="Product name contains…">
-        <div class="row">
+        <legend>Add product sizes</legend>
+        <div class="section-label">Filter available sizes</div>
+        <div class="filters">
+          <input id="search" type="search" placeholder="Product name contains…">
           <input id="vendor" type="search" placeholder="Vendor…">
-          <input id="type" type="search" placeholder="Type…">
+          <select id="type" aria-label="Filter by product type">
+            <option value="">All types</option>
+          </select>
+          <select id="size-filter" aria-label="Filter by size">
+            <option value="">Any size</option>
+          </select>
         </div>
+        <div class="hint">“Any size” includes every available size of matching products.</div>
+        <button id="add-filter">Add all matches</button>
+        <div class="divider">Or add one</div>
         <label for="product">Product</label>
         <select id="product"></select>
         <label for="size">Size</label>
         <select id="size"></select>
-        <button id="add">Add to canvas</button>
-        <button id="add-filter">Add all filtered (all sizes)</button>
+        <button id="add">Add selected size</button>
       </fieldset>
 
       <fieldset>
         <legend>Display</legend>
-        <div class="row"><button id="imperial">Imperial</button><button id="metric" class="active">Metric</button></div>
+        <div class="segmented" role="group" aria-label="Measurement units">
+          <button id="imperial" aria-pressed="false">Imperial</button>
+          <button id="metric" class="active" aria-pressed="true">Metric</button>
+        </div>
         <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="reset-view">Reset view</button></div>
         <div class="row" style="margin-top:.65rem"><button id="remove-selected">Remove selected</button><button id="clear">Clear canvas</button></div>
         <div class="hint">Wheel zoom · drag empty space or middle-drag to pan. The scale bar is shown in the canvas.</div>
@@ -105,6 +126,11 @@
       return metric ? `${(inches * 2.54).toFixed(1)} cm` : `${inches} in`;
     }
 
+    function matchingSizes(product) {
+      const size = $('#size-filter').value;
+      return product.sizes.filter(item => !size || item.label === size);
+    }
+
     async function loadImage(url) {
       const response = await fetch(`${url}?v=${Date.now()}`);
       if (!response.ok) throw new Error('Could not load reviewed SVG');
@@ -145,11 +171,12 @@
     function filterProducts() {
       const name = $('#search').value.trim().toLowerCase();
       const vendor = $('#vendor').value.trim().toLowerCase();
-      const type = $('#type').value.trim().toLowerCase();
+      const type = $('#type').value;
       shownProducts = products.filter(product =>
         product.n.toLowerCase().includes(name) &&
         product.vn.toLowerCase().includes(vendor) &&
-        product.pt.toLowerCase().includes(type));
+        (!type || product.pt === type) &&
+        matchingSizes(product).length);
       const select = $('#product');
       const previous = select.value;
       select.replaceChildren();
@@ -161,8 +188,8 @@
       }
       if ([...select.options].some(option => option.value === previous)) select.value = previous;
       updateSizes();
-      const sizeCount = shownProducts.reduce((total, product) => total + product.sizes.length, 0);
-      $('#add-filter').textContent = `Add all filtered (${sizeCount} sizes)`;
+      const sizeCount = shownProducts.reduce((total, product) => total + matchingSizes(product).length, 0);
+      $('#add-filter').textContent = `Add all ${sizeCount} match${sizeCount === 1 ? '' : 'es'}`;
       $('#add-filter').disabled = bulkAdding || sizeCount === 0;
     }
 
@@ -175,9 +202,9 @@
       const select = $('#size');
       select.replaceChildren();
       if (!product) return;
-      product.sizes.forEach((size, position) => {
+      matchingSizes(product).forEach(size => {
         const option = document.createElement('option');
-        option.value = position;
+        option.value = size.index;
         option.textContent = `${size.label} — ${size.name} — ${formatLength(size.length_in)}`;
         select.appendChild(option);
       });
@@ -254,7 +281,7 @@
 
     async function addProduct() {
       const product = selectedProduct();
-      const size = product?.sizes[Number($('#size').value)];
+      const size = product?.sizes.find(item => item.index === Number($('#size').value));
       if (!product || !size) return;
       try {
         setStatus('Loading outline…');
@@ -267,13 +294,15 @@
     async function addFiltered() {
       const filteredIds = new Set(shownProducts.map(product => String(product.id)));
       const arrangeFiltered = () => {
-        spreadObjects(objects.filter(object => filteredIds.has(String(object.product.id))));
+        spreadObjects(objects.filter(object =>
+          filteredIds.has(String(object.product.id)) &&
+          matchingSizes(object.product).some(size => size.index === object.size.index)));
         renderLayers();
         fitAll();
       };
       const variants = shownProducts.map(product => ({
         product,
-        sizes: product.sizes.filter(size => !objects.some(object =>
+        sizes: matchingSizes(product).filter(size => !objects.some(object =>
           String(object.product.id) === String(product.id) && object.size.index === size.index)),
       })).filter(entry => entry.sizes.length);
       if (!variants.length) {
@@ -298,7 +327,7 @@
         } catch (_) { failures++; }
       }
       bulkAdding = false;
-      $('#add-filter').disabled = shownProducts.length === 0;
+      filterProducts();
       setStatus(
         `${added} size${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
         failures > 0,
@@ -317,8 +346,6 @@
     function drawGrid(width, height) {
       ctx.save();
       ctx.strokeStyle = '#2a3139';
-      ctx.fillStyle = '#7b8793';
-      ctx.font = '11px system-ui';
       const unitsPerInch = metric ? 2.54 : 1;
       let stepUnits = 1;
       while (stepUnits / unitsPerInch * view.zoom < 8) stepUnits *= 2;
@@ -332,9 +359,6 @@
         const x = view.x + index * spacing * view.zoom;
         ctx.globalAlpha = index % labelEvery === 0 ? .8 : .35;
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-        if (index % labelEvery === 0) {
-          ctx.fillText(`${index * stepUnits} ${metric ? 'cm' : 'in'}`, x + 3, 13);
-        }
       }
       for (let index = Math.floor(minY / spacing); index <= Math.ceil(maxY / spacing); index++) {
         const y = view.y + index * spacing * view.zoom;
@@ -438,6 +462,15 @@
 
     function updateUnits() {
       updateSizes(); renderLayers(); render();
+    }
+
+    function setUnits(useMetric) {
+      metric = useMetric;
+      $('#imperial').classList.toggle('active', !metric);
+      $('#imperial').setAttribute('aria-pressed', String(!metric));
+      $('#metric').classList.toggle('active', metric);
+      $('#metric').setAttribute('aria-pressed', String(metric));
+      updateUnits();
     }
 
     function objectBounds(object) {
@@ -560,12 +593,14 @@
       render();
     }, { passive: false });
 
-    for (const input of [$('#search'), $('#vendor'), $('#type')]) input.addEventListener('input', filterProducts);
+    for (const input of [$('#search'), $('#vendor')]) input.addEventListener('input', filterProducts);
+    $('#type').addEventListener('change', filterProducts);
+    $('#size-filter').addEventListener('change', filterProducts);
     $('#product').addEventListener('change', updateSizes);
     $('#add').addEventListener('click', addProduct);
     $('#add-filter').addEventListener('click', addFiltered);
-    $('#imperial').addEventListener('click', () => { metric = false; $('#imperial').classList.add('active'); $('#metric').classList.remove('active'); updateUnits(); });
-    $('#metric').addEventListener('click', () => { metric = true; $('#metric').classList.add('active'); $('#imperial').classList.remove('active'); updateUnits(); });
+    $('#imperial').addEventListener('click', () => setUnits(false));
+    $('#metric').addEventListener('click', () => setUnits(true));
     $('#fit-all').addEventListener('click', fitAll);
     $('#reset-view').addEventListener('click', resetView);
     $('#remove-selected').addEventListener('click', () => { if (selected) removeObject(selected); });
@@ -577,6 +612,19 @@
         const response = await fetch('/api/comparison/products');
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
         products = (await response.json()).products;
+        for (const type of [...new Set(products.map(product => product.pt))].sort()) {
+          const option = document.createElement('option');
+          option.value = option.textContent = type;
+          $('#type').appendChild(option);
+        }
+        const sizeLabels = [...new Set(products.flatMap(product =>
+          product.sizes.map(size => size.label)))].sort((left, right) =>
+            left.localeCompare(right, undefined, {numeric: true, sensitivity: 'base'}));
+        for (const label of sizeLabels) {
+          const option = document.createElement('option');
+          option.value = option.textContent = label;
+          $('#size-filter').appendChild(option);
+        }
         filterProducts(); render();
         setStatus(products.length ? `${products.length} reviewed products available` : 'No reviewed products with size and length-vector data yet');
       } catch (error) { setStatus(error.message, true); }
