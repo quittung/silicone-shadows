@@ -141,15 +141,23 @@ async function syncPrefetch(visible = visibleItems(), currentId = current?.id) {
 
 function matchesCatalogFilters(item) {
   const name = $('#name-filter').value.trim().toLowerCase();
-  const vendor = $('#vendor-filter').value.trim().toLowerCase();
+  const vendor = $('#vendor-filter').value;
   const type = $('#type-filter').value.trim().toLowerCase();
   const products = item.products?.length
     ? item.products
     : [{ n: item.id, vn: '', pt: '' }];
   return products.some(product =>
     String(product.n).toLowerCase().includes(name) &&
-    String(product.vn).toLowerCase().includes(vendor) &&
+    matchesVendorFilter(product.vn, vendor) &&
     (!type || String(product.pt).toLowerCase() === type));
+}
+
+function matchesVendorFilter(vendor, query) {
+  const value = String(vendor).toLowerCase();
+  const terms = query.toLowerCase().split(/\s+/).filter(term => term && term !== '-');
+  return terms.every(term => term.startsWith('-')
+    ? !value.includes(term.slice(1))
+    : value.includes(term));
 }
 
 function startClaimHeartbeat(itemId) {
