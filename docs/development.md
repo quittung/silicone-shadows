@@ -37,7 +37,7 @@ the web server package.
 
 ## Dataset releases
 
-Build a versioned, data-only archive and SHA-256 checksum:
+Build a versioned, data-only archive:
 
 ```sh
 .venv/bin/python release_dataset.py v0.1.0
@@ -67,8 +67,9 @@ Omit `--push --draft` to sync, commit, and build the archive locally. Syncing
 requires a clean checkout and mirrors the server dataset, including deletions.
 
 The script validates every record and SVG before upload. It then downloads the
-draft assets again and verifies their checksum, manifest version and commit,
-license, and rights notice. Publication remains a manual action on GitHub.
+draft archive again and verifies it against GitHub's SHA-256 digest, along with
+its manifest version and commit, license, and rights notice. Publication remains
+a manual action on GitHub.
 
 The catalog version is pinned in `catalog_source.json`; updating its `version`
 makes the app download the corresponding catalog.

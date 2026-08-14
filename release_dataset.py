@@ -298,11 +298,10 @@ def release_notes(manifest: dict) -> str:
 The attached ZIP contains the published `dataset/` tree and its snapshot manifest.
 Third-party rights and the project's correction/removal process are described in
 `dataset/NOTICE.md` inside the archive.
-Use the attached SHA-256 file to verify the download.
 """
 
 
-def build(version: str, output_dir: Path) -> tuple[Path, Path, Path]:
+def build(version: str, output_dir: Path) -> tuple[Path, Path]:
     validate_version(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
@@ -314,21 +313,18 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path, Path]:
         for path in files:
             bundle.write(path, path.relative_to(ROOT))
 
-    checksum = output_dir / f"{archive.name}.sha256"
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksum.write_text(f"{digest}  {archive.name}\n", encoding="ascii")
     notes = output_dir / f"silicone-shadows-dataset-{version}-release-notes.md"
     notes.write_text(release_notes(manifest), encoding="utf-8")
-    return archive, checksum, notes
+    return archive, notes
 
 
-def verify_release_assets(version: str, directory: Path, expected_commit: str) -> None:
+def verify_release_assets(
+    version: str, directory: Path, expected_commit: str, expected_digest: str
+) -> None:
     archive = directory / f"silicone-shadows-dataset-{version}.zip"
-    checksum = directory / f"{archive.name}.sha256"
-    checksum_parts = checksum.read_text(encoding="ascii").split()
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    if checksum_parts != [digest, archive.name]:
-        raise RuntimeError("downloaded release checksum does not match its archive")
+    if digest != expected_digest:
+        raise RuntimeError("downloaded release does not match its GitHub digest")
 
     with zipfile.ZipFile(archive) as bundle:
         names = set(bundle.namelist())
@@ -342,6 +338,19 @@ def verify_release_assets(version: str, directory: Path, expected_commit: str) -
 
 
 def verify_uploaded_release(version: str, expected_commit: str) -> None:
+    archive_name = f"silicone-shadows-dataset-{version}.zip"
+    release = subprocess.run(
+        ["gh", "release", "view", version, "--json", "assets"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assets = json.loads(release.stdout)["assets"]
+    asset = next((item for item in assets if item["name"] == archive_name), None)
+    if not asset or not asset.get("digest", "").startswith("sha256:"):
+        raise RuntimeError("GitHub did not report a SHA-256 digest for the archive")
+    expected_digest = asset["digest"].removeprefix("sha256:")
     with TemporaryDirectory() as directory:
         subprocess.run(
             [
@@ -352,12 +361,12 @@ def verify_uploaded_release(version: str, expected_commit: str) -> None:
                 "--dir",
                 directory,
                 "--pattern",
-                f"silicone-shadows-dataset-{version}.zip*",
+                archive_name,
             ],
             cwd=ROOT,
             check=True,
         )
-        verify_release_assets(version, Path(directory), expected_commit)
+        verify_release_assets(version, Path(directory), expected_commit, expected_digest)
 
 
 def ensure_publishable() -> str:
@@ -403,9 +412,8 @@ def main() -> None:
             sync_hosted_dataset(args.version)
         if args.push:
             subprocess.run(["git", "push"], cwd=ROOT, check=True)
-        archive, checksum, notes = build(args.version, ROOT / "dist")
+        archive, notes = build(args.version, ROOT / "dist")
         print(f"Built {archive.relative_to(ROOT)}")
-        print(f"Built {checksum.relative_to(ROOT)}")
         print(f"Built {notes.relative_to(ROOT)}")
         if args.draft:
             head = ensure_publishable()
@@ -416,7 +424,6 @@ def main() -> None:
                     "create",
                     args.version,
                     str(archive),
-                    str(checksum),
                     "--target",
                     head,
                     "--title",
@@ -429,7 +436,7 @@ def main() -> None:
                 check=True,
             )
             verify_uploaded_release(args.version, head)
-            print("Verified uploaded archive and checksum")
+            print("Verified uploaded archive and GitHub digest")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
 

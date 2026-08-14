@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -8,9 +9,10 @@ import release_dataset
 
 
 class ReleaseDatasetTest(unittest.TestCase):
-    def test_builds_data_only_archive_and_checksum(self):
+    def test_builds_and_verifies_data_only_archive(self):
         with tempfile.TemporaryDirectory() as directory:
-            archive, _checksum, notes = release_dataset.build("v0.0.0", Path(directory))
+            archive, notes = release_dataset.build("v0.0.0", Path(directory))
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             with zipfile.ZipFile(archive) as bundle:
                 names = bundle.namelist()
                 manifest = json.loads(bundle.read("manifest.json"))
@@ -34,12 +36,12 @@ class ReleaseDatasetTest(unittest.TestCase):
                 )
             )
             release_dataset.verify_release_assets(
-                "v0.0.0", Path(directory), manifest["git_commit"]
+                "v0.0.0", Path(directory), manifest["git_commit"], digest
             )
             archive.write_bytes(archive.read_bytes() + b"corrupt")
             with self.assertRaises(RuntimeError):
                 release_dataset.verify_release_assets(
-                    "v0.0.0", Path(directory), manifest["git_commit"]
+                    "v0.0.0", Path(directory), manifest["git_commit"], digest
                 )
 
     def test_rejects_non_semantic_version(self):
