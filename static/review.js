@@ -91,17 +91,6 @@ async function refreshItems() {
   return response;
 }
 
-async function refreshModerationCount() {
-  const link = $('#moderate-link');
-  if (link.hidden) return;
-  try {
-    const data = await api('/api/moderation/submissions');
-    const count = data.submissions.length;
-    $('#moderate-count').textContent = count;
-    link.setAttribute('aria-label', `Moderate, ${count} pending`);
-  } catch (_) {}
-}
-
 function visibleItems() {
   const filter = $('#filter').value;
   return items.filter(item => {
@@ -756,7 +745,7 @@ async function performSave(status) {
   setStatus(status === 'done'
     ? (hostedMode ? 'Submitted for review' : 'Saved and exported')
     : 'Draft saved');
-  if (status === 'done') refreshModerationCount();
+  if (status === 'done') window.refreshModerationCount?.();
   return result;
 }
 
@@ -1071,11 +1060,7 @@ $('#show-all').addEventListener('click', () => {
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
   applyFilters();
 });
-$('#logout').addEventListener('click', async () => {
-  await releaseCurrentClaim();
-  await fetch('/api/logout', {method:'POST'});
-  location.href = '/';
-});
+window.beforeAppLogout = releaseCurrentClaim;
 
 window.addEventListener('keydown', event => {
   if (event.target.matches('input, select')) return;
@@ -1125,14 +1110,8 @@ try {
 
 (async () => {
   try {
-    const session = await api('/api/session');
+    const session = await window.appNavigationReady;
     hostedMode = session.hosted;
-    $('#logout').hidden = !session.user;
-    $('#moderate-link').hidden = !session.user?.reviewer;
-    if (session.user?.reviewer) {
-      await refreshModerationCount();
-      setInterval(refreshModerationCount, 30_000);
-    }
     if (hostedMode) {
       $('#save-label').textContent = 'Submit';
       $('#source-info').textContent = 'Moving to another product discards unfinished work.';

@@ -24,22 +24,7 @@ button, select {
 button { cursor: pointer; }
 button:hover:not(:disabled), button.active { border-color: var(--accent); background: #263943; }
 button:disabled { opacity: .45; cursor: default; }
-header {
-  position: relative; height: 58px; display: flex; align-items: center; gap: .75rem;
-  padding: .55rem .8rem; border-bottom: 1px solid var(--border); background: var(--panel);
-}
-header nav {
-  display: flex; gap: .35rem; margin-left: auto; padding-left: 1rem;
-  border-left: 1px solid var(--border);
-}
-header nav a { color: var(--muted); text-decoration: none; padding: .4rem .55rem; border-radius: 5px; }
-header nav a:hover, header nav a.active { color: var(--text); background: #28313a; }
-.nav-count {
-  display: inline-grid; min-width: 1.35rem; height: 1.35rem; margin-left: .2rem;
-  place-items: center; padding: 0 .3rem; border-radius: 999px;
-  color: var(--text); background: #48515c; font-size: .78rem; line-height: 1;
-  font-variant-numeric: tabular-nums; vertical-align: middle;
-}
+.app-header { position: relative; }
 #catalog-filters {
   position: absolute; left: 50%; transform: translateX(-50%);
   width: min(44vw, 58rem); min-width: 24rem; display: grid;

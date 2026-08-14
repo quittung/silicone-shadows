@@ -8,11 +8,7 @@
     :root { color-scheme: dark; font: 15px/1.4 system-ui, sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --warn:#fbbf24; --bad:#fb7185; }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--text); }
-    header { height:58px; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem; position:sticky; top:0; z-index:2; background:var(--panel); border-bottom:1px solid var(--border); }
-    header strong { margin-right:auto; }
-    nav { display:flex; gap:.35rem; }
-    nav a { color:var(--muted); text-decoration:none; padding:.4rem .6rem; border-radius:5px; }
-    nav a:hover, nav a.active { color:var(--text); background:#28313a; }
+    header { position:sticky; top:0; z-index:2; }
     main { max-width:1400px; margin:auto; padding:1.2rem; }
     h1 { margin:.2rem 0 1rem; font-size:1.55rem; }
     h2 { margin:1.5rem 0 .7rem; font-size:1.15rem; }
@@ -54,15 +50,12 @@
     }
     #error { color:var(--bad); }
   </style>
+  <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
 </head>
 <body>
-  <header>
+  <header class="app-header">
     <strong>Silicone Shadows</strong>
-    <nav>
-      <a href="/editor">Editor</a>
-      <a class="active" href="/stats">Stats</a>
-      <a href="/compare">Compare</a>
-    </nav>
+    <div data-app-nav="stats"></div>
   </header>
   <main>
     <h1>Catalog progress</h1>
@@ -98,6 +91,7 @@
     </div>
     <div id="types" class="chart"></div>
   </main>
+  <script src="/static/nav.js?v=20260814-1"></script>
   <script>
     const $ = selector => document.querySelector(selector);
 

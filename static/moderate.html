@@ -8,11 +8,6 @@
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --bad:#fb7185; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--bg); color:var(--text); }
-    header { min-height:58px; display:flex; align-items:center; gap:1rem; padding:.6rem 1rem; background:var(--panel); border-bottom:1px solid var(--border); }
-    header strong { margin-right:auto; }
-    nav { display:flex; gap:.35rem; }
-    nav a { color:var(--muted); text-decoration:none; padding:.4rem .6rem; border-radius:5px; }
-    nav a:hover,nav a.active { color:var(--text); background:#28313a; }
     main { max-width:1100px; margin:auto; padding:1rem; }
     #submissions { display:grid; gap:1rem; }
     article { padding:1rem; border:1px solid var(--border); border-radius:9px; background:var(--panel); }
@@ -29,18 +24,19 @@
     #status { color:var(--muted); margin:.8rem 0; }
     @media (max-width:700px) { .images { grid-template-columns:1fr; } }
   </style>
+  <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
 </head>
 <body>
-  <header>
+  <header class="app-header">
     <strong>Silicone Shadows</strong>
-    <nav><a href="/editor">Editor</a><a href="/stats">Stats</a><a href="/compare">Compare</a><a class="active" href="/moderate">Moderate</a></nav>
-    <button id="logout">Log out</button>
+    <div data-app-nav="moderate"></div>
   </header>
   <main>
     <h1>Pending review</h1>
     <div id="status" role="status">Loading…</div>
     <section id="submissions"></section>
   </main>
+  <script src="/static/nav.js?v=20260814-1"></script>
   <script>
     const target = document.querySelector('#submissions');
     const status = document.querySelector('#status');
@@ -55,11 +51,6 @@
       return response.status === 204 ? null : response.json();
     }
 
-    document.querySelector('#logout').addEventListener('click', async () => {
-      await request('/api/logout', {method:'POST'});
-      location.href = '/';
-    });
-
     async function decide(itemId, decision) {
       try {
         await request(`/api/moderation/submissions/${encodeURIComponent(itemId)}/${decision}`, {method:'POST'});
@@ -70,6 +61,7 @@
     async function load() {
       const data = await request('/api/moderation/submissions');
       target.replaceChildren();
+      window.setModerationCount(data.submissions.length);
       status.textContent = data.submissions.length ? `${data.submissions.length} pending` : 'Nothing is waiting for review.';
       for (const item of data.submissions) {
         const article = document.createElement('article');
