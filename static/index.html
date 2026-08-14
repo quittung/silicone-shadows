@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css?v=20260814-1">
+  <link rel="stylesheet" href="/static/review.css?v=20260814-2">
   <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
   <link rel="stylesheet" href="/static/metadata.css">
 </head>
@@ -88,71 +88,83 @@
     </section>
 
     <aside>
-      <fieldset>
-        <legend>Source image</legend>
-        <div id="source-buttons" class="button-grid">
-          <button id="search-images">Search images</button>
-          <button id="open-product" hidden>Open product</button>
-          <button id="reset-catalog" style="grid-column:1/-1" hidden>Reset to catalog</button>
-          <button id="rereview" hidden>Re-review</button>
-          <button id="edit-metadata" hidden>Edit metadata</button>
-        </div>
-        <div id="source-info" class="hint" style="margin-top:.55rem">Drop or paste an image onto the canvas.</div>
-      </fieldset>
+      <section id="read-only-panel" hidden>
+        <fieldset>
+          <legend>Read-only entry</legend>
+          <div id="read-only-summary"></div>
+          <div id="read-only-info" class="hint"></div>
+          <div id="read-only-actions">
+            <button id="rereview" hidden>Re-review</button>
+            <button id="edit-metadata" hidden>Edit metadata</button>
+          </div>
+        </fieldset>
+      </section>
 
-      <fieldset class="editor">
-        <legend>1. Correct mask</legend>
-        <div class="hint step-help">
-          Use Add and Erase to correct the silhouette.
-        </div>
-        <label>Alpha threshold</label>
-        <div class="range">
-          <input id="threshold" type="range" min="1" max="255" value="128">
-          <output id="threshold-value">128</output>
-        </div>
-        <label>Overlay opacity</label>
-        <div class="range">
-          <input id="opacity" type="range" min="0" max="100" value="75">
-          <output id="opacity-value">75%</output>
-        </div>
-        <div class="button-grid" style="margin-top:.65rem">
-          <button class="tool active" data-tool="add">Add <kbd>A</kbd></button>
-          <button class="tool" data-tool="erase">Erase <kbd>E</kbd></button>
-        </div>
-        <label style="display:block;margin-top:.65rem">Brush size</label>
-        <div class="range">
-          <input id="brush" type="range" min="2" max="250" value="40">
-          <output id="brush-value">40 px</output>
-        </div>
-        <div class="button-grid" style="margin-top:.65rem">
-          <button id="undo">Undo stroke</button>
-          <button id="reset-edits">Reset paint</button>
-        </div>
-      </fieldset>
+      <div id="edit-panel">
+        <fieldset>
+          <legend>Source image</legend>
+          <div id="source-buttons" class="button-grid">
+            <button id="search-images">Search images</button>
+            <button id="open-product" hidden>Open product</button>
+            <button id="reset-catalog" style="grid-column:1/-1" hidden>Reset to catalog</button>
+          </div>
+          <div id="source-info" class="hint" style="margin-top:.55rem">Drop or paste an image onto the canvas.</div>
+        </fieldset>
 
-      <fieldset class="editor">
-        <legend>2. Add scaling info</legend>
-        <div id="line-info">Select Length, then mark the usable portion toward the tip.</div>
-        <div class="button-grid length-actions" style="margin-top:.55rem">
-          <button class="tool" data-tool="length" style="grid-column:1/-1">Length <kbd>W</kbd></button>
-          <button id="reverse-line">Reverse</button>
-          <button id="clear-line">Clear</button>
-        </div>
-      </fieldset>
+        <fieldset class="editor">
+          <legend>1. Correct mask</legend>
+          <div class="hint step-help">
+            Use Add and Erase to correct the silhouette.
+          </div>
+          <label>Alpha threshold</label>
+          <div class="range">
+            <input id="threshold" type="range" min="1" max="255" value="128">
+            <output id="threshold-value">128</output>
+          </div>
+          <label>Overlay opacity</label>
+          <div class="range">
+            <input id="opacity" type="range" min="0" max="100" value="75">
+            <output id="opacity-value">75%</output>
+          </div>
+          <div class="button-grid" style="margin-top:.65rem">
+            <button class="tool active" data-tool="add">Add <kbd>A</kbd></button>
+            <button class="tool" data-tool="erase">Erase <kbd>E</kbd></button>
+          </div>
+          <label style="display:block;margin-top:.65rem">Brush size</label>
+          <div class="range">
+            <input id="brush" type="range" min="2" max="250" value="40">
+            <output id="brush-value">40 px</output>
+          </div>
+          <div class="button-grid" style="margin-top:.65rem">
+            <button id="undo">Undo stroke</button>
+            <button id="reset-edits">Reset paint</button>
+          </div>
+        </fieldset>
 
-      <fieldset class="editor">
-        <legend>3. Export</legend>
-        <label>Image quality</label>
-        <div class="rating">
-          <button data-rating="unusable"><kbd>1</kbd> Unusable</button>
-          <button data-rating="bad_perspective"><kbd>2</kbd> Bad perspective</button>
-          <button data-rating="good"><kbd>3</kbd> Good</button>
-        </div>
-        <div class="button-grid export-actions">
-          <button id="download-current">Download</button>
-          <button id="save-next"><span id="save-label">Save</span> <kbd>Space</kbd></button>
-        </div>
-      </fieldset>
+        <fieldset class="editor">
+          <legend>2. Add scaling info</legend>
+          <div id="line-info">Select Length, then mark the usable portion toward the tip.</div>
+          <div class="button-grid length-actions" style="margin-top:.55rem">
+            <button class="tool" data-tool="length" style="grid-column:1/-1">Length <kbd>W</kbd></button>
+            <button id="reverse-line">Reverse</button>
+            <button id="clear-line">Clear</button>
+          </div>
+        </fieldset>
+
+        <fieldset class="editor">
+          <legend>3. Export</legend>
+          <label>Image quality</label>
+          <div class="rating">
+            <button data-rating="unusable"><kbd>1</kbd> Unusable</button>
+            <button data-rating="bad_perspective"><kbd>2</kbd> Bad perspective</button>
+            <button data-rating="good"><kbd>3</kbd> Good</button>
+          </div>
+          <div class="button-grid export-actions">
+            <button id="download-current">Download</button>
+            <button id="save-next"><span id="save-label">Save</span> <kbd>Space</kbd></button>
+          </div>
+        </fieldset>
+      </div>
 
       <div id="status"></div>
     </aside>
@@ -160,6 +172,6 @@
 
   <script src="/static/nav.js?v=20260814-1"></script>
   <script src="/static/metadata.js"></script>
-  <script src="/static/review.js?v=20260814-1"></script>
+  <script src="/static/review.js?v=20260814-2"></script>
 </body>
 </html>

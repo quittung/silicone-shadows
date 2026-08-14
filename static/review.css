@@ -87,6 +87,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .range output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .button-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .45rem; }
 #source-buttons { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+#read-only-info { margin-top: .45rem; }
+#read-only-actions { display: grid; gap: .45rem; margin-top: .75rem; }
+#rereview, #edit-metadata { width: 100%; padding: .7rem; font-weight: 650; }
 .rating { display: grid; gap: .45rem; }
 .rating button { text-align: left; }
 .rating button[data-rating="unusable"].active { border-color: var(--danger); }

@@ -170,6 +170,11 @@ function startClaimHeartbeat(itemId) {
       current.read_only = true;
       state = null;
       setEditorDisabled(true);
+      setSidebarMode('read-only');
+      $('#read-only-summary').textContent = 'Editing stopped';
+      $('#read-only-info').textContent = error.message;
+      $('#rereview').hidden = true;
+      $('#edit-metadata').hidden = true;
       setStatus(error.message, true);
       render();
     }
@@ -203,6 +208,7 @@ function showEmptyState() {
   state = null;
   current = null;
   $('#published-state').classList.remove('visible');
+  setSidebarMode('empty');
   setEditorDisabled(false);
   $('#reset-catalog').hidden = true;
   $('#open-product').hidden = true;
@@ -213,6 +219,11 @@ function showEmptyState() {
 
 function setEditorDisabled(disabled) {
   $$('.editor button, .editor input, button.editor').forEach(control => control.disabled = disabled);
+}
+
+function setSidebarMode(mode) {
+  $('#edit-panel').hidden = mode !== 'edit';
+  $('#read-only-panel').hidden = mode !== 'read-only';
 }
 
 function setItemTitle(item) {
@@ -233,17 +244,19 @@ async function showPublishedItem(item) {
   editsDirty = metadataDirty = false;
   setItemTitle(item);
   setEditorDisabled(true);
+  setSidebarMode('read-only');
   $('#published-state').classList.add('visible');
   const source = item.provenance === 'alternative' ? 'alternative image' :
     item.provenance === 'mixed' ? 'mixed image sources' : 'catalog image';
   const stage = item.pending_review ? 'Pending review' : 'In catalog';
   $('#published-note').textContent = `${stage} · ${item.rating?.replace('_', ' ') || 'mixed rating'} · ${source}`;
+  $('#read-only-summary').textContent = `${stage} · ${item.rating?.replace('_', ' ') || 'mixed rating'} · ${source}`;
   $('#view-hint').textContent = 'Wheel zoom · drag pans';
-  $('#source-info').textContent = item.pending_review
-    ? 'This finished submission is waiting for review.'
+  $('#read-only-info').textContent = item.pending_review
+    ? 'This submission is waiting for moderation and cannot be edited right now.'
     : item.independent
-      ? 'This manual record keeps its full metadata and published outline.'
-      : 'The tracked dataset is the authoritative result. Re-review to replace it.';
+      ? 'This independent entry is in the catalog. You can update its metadata without changing the outline.'
+      : 'This entry is in the catalog. Re-review it to replace the published outline.';
   $('#reset-catalog').hidden = hostedMode || !item.has_alternative;
   $('#rereview').hidden = item.independent || item.pending_review || !item.published;
   $('#edit-metadata').hidden = !item.independent || item.pending_review;
@@ -304,6 +317,7 @@ async function loadItem(itemId) {
   }
   $('#published-state').classList.remove('visible');
   setEditorDisabled(false);
+  setSidebarMode('edit');
   $('#rereview').hidden = true;
   $('#edit-metadata').hidden = true;
   $('#view-hint').textContent = 'Wheel zoom · middle drag pans';
@@ -353,6 +367,7 @@ async function loadItem(itemId) {
     if (hostedMode) {
       current = state = sourceImage = rembgImage = null;
       setEditorDisabled(true);
+      setSidebarMode('empty');
       render();
     }
     setStatus(error.message, true);
