@@ -17,14 +17,17 @@
         </div>
         <button id="landing-logout" hidden>Log out</button>
       </header>
+      <p id="guest-contact" class="guest-contact" hidden>
+        Want to contribute to the catalog or have questions? Contact <strong>qtng</strong> on Discord.
+      </p>
       <div id="choices">
         <a id="catalog-choice" class="choice" href="/editor" hidden>
           <strong>Work on the Toybox catalog</strong>
-          <span>Claim a catalog product, edit its silhouette, then submit it for review or download it.</span>
+          <span>Pick an existing catalog product, correct its silhouette, then submit it for review or download it.</span>
         </a>
         <section class="choice independent">
-          <strong>Start an independent product</strong>
-          <span>Select, drop, or paste a photo for a product that does not need to exist in the Toybox catalog.</span>
+          <strong id="independent-title">Choose a photo</strong>
+          <span id="independent-description">Select, drop, or paste an image to get started.</span>
           <form id="upload-form">
             <input id="image" name="image" type="file"
               accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff" required>
@@ -33,9 +36,6 @@
           <div id="upload-status" class="status" role="status"></div>
         </section>
       </div>
-      <p id="guest-contact" class="guest-contact" hidden>
-        Want to contribute to the catalog or have other questions? Contact <strong>qtng</strong> on Discord.
-      </p>
       <div class="privacy">
         <strong>Privacy</strong>
         <p>We retain as little data as reasonably necessary to provide and protect
@@ -132,6 +132,6 @@
   </section>
 
   <script src="/static/metadata.js"></script>
-  <script src="/static/public.js"></script>
+  <script src="/static/public.js?v=20260814-1"></script>
 </body>
 </html>

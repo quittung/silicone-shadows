@@ -119,7 +119,11 @@ class HostedAppTest(unittest.TestCase):
     def test_invites_claims_submission_and_approval(self) -> None:
         anonymous = TestClient(self.app)
         landing = anonymous.get("/")
-        self.assertIn("Start an independent product", landing.text)
+        self.assertIn("Choose a photo", landing.text)
+        self.assertLess(
+            landing.text.index("Want to contribute"),
+            landing.text.index('id="upload-form"'),
+        )
         self.assertEqual(landing.headers["cache-control"], "no-store")
         self.assertEqual(anonymous.get("/static/public.css").status_code, 200)
         self.assertEqual(anonymous.get("/static/public.js").status_code, 200)

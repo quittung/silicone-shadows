@@ -646,8 +646,14 @@ fetch('/api/session').then(json).then(session => {
   $('#submit-review').hidden = !sessionUser;
   $('#guest-contact').hidden = Boolean(sessionUser);
   $('#session-status').textContent = sessionUser
-    ? `Signed in as ${sessionUser.name}. Choose a starting source.`
-    : 'Continue as a guest with an independent product.';
+    ? `Signed in as ${sessionUser.name}. Choose a starting point.`
+    : 'Continue as a guest to turn a product photo into a downloadable outline and metadata. Your work stays separate from the catalog and won’t be submitted for review.';
+  $('#independent-title').textContent = sessionUser
+    ? 'Create a new product entry'
+    : 'Choose a photo';
+  $('#independent-description').textContent = sessionUser
+    ? 'Start from your own photo instead of Toybox data, then download the result or submit it for review.'
+    : 'Select, drop, or paste an image to get started.';
   $('#retention-hint').textContent = sessionUser
     ? 'Download your work or submit it for review.'
     : 'Nothing is saved on the server; download before leaving.';
