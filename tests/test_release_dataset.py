@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import release_dataset
 
@@ -44,9 +45,27 @@ class ReleaseDatasetTest(unittest.TestCase):
                     "v0.0.0", Path(directory), manifest["git_commit"], digest
                 )
 
-    def test_rejects_non_semantic_version(self):
+    def test_rejects_unsafe_release_name(self):
         with self.assertRaises(ValueError):
-            release_dataset.build("latest", Path("unused"))
+            release_dataset.build("../latest", Path("unused"))
+
+    def test_auto_increments_integer_and_legacy_versions(self):
+        releases = [
+            {"tagName": "v0.1.0"},
+            {"tagName": "v0.6.0"},
+            {"tagName": "special-snapshot"},
+        ]
+        with patch(
+            "release_dataset.subprocess.check_output",
+            return_value=json.dumps(releases),
+        ):
+            self.assertEqual(release_dataset.next_release_name(), "v7")
+        releases.append({"tagName": "v9"})
+        with patch(
+            "release_dataset.subprocess.check_output",
+            return_value=json.dumps(releases),
+        ):
+            self.assertEqual(release_dataset.next_release_name(), "v10")
 
     def test_reads_hosted_dataset_source_from_env(self):
         with tempfile.TemporaryDirectory() as directory:

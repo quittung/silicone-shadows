@@ -37,16 +37,17 @@ the web server package.
 
 ## Dataset releases
 
-Build a versioned, data-only archive:
+Build a data-only archive using the next integer release name from GitHub:
 
 ```sh
-.venv/bin/python release_dataset.py v0.1.0
+.venv/bin/python release_dataset.py
 ```
 
-After inspecting the generated files under `dist/`, create a GitHub draft with:
+Pass a name such as `v12` explicitly to override the automatic name. After
+inspecting the generated files under `dist/`, create a GitHub draft with:
 
 ```sh
-.venv/bin/python release_dataset.py v0.1.0 --draft
+.venv/bin/python release_dataset.py --draft
 ```
 
 For a hosted deployment, put its SSH destination in the ignored `.env` file:
@@ -60,7 +61,7 @@ Then sync approved records, commit them, push, and create the verified draft in
 one run:
 
 ```sh
-.venv/bin/python release_dataset.py v0.5.0 --sync-hosted --push --draft
+.venv/bin/python release_dataset.py --sync-hosted --push --draft
 ```
 
 Omit `--push --draft` to sync, commit, and build the archive locally. Syncing

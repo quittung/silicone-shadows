@@ -16,7 +16,9 @@ from tempfile import TemporaryDirectory
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION_PATTERN = re.compile(r"v\d+\.\d+\.\d+")
+RELEASE_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+INTEGER_VERSION_PATTERN = re.compile(r"v(\d+)")
+LEGACY_VERSION_PATTERN = re.compile(r"v0\.(\d+)\.0")
 QUALITIES = ("good", "bad_perspective", "unusable")
 SOURCES = ("catalog", "alternative")
 CATALOG_METADATA_FIELDS = {"schema_version", "catalog_id", "quality", "source"}
@@ -45,9 +47,31 @@ def git(*args: str) -> str:
     ).strip()
 
 
-def validate_version(version: str) -> None:
-    if not VERSION_PATTERN.fullmatch(version):
-        raise ValueError("version must look like v1.2.3")
+def validate_release_name(version: str) -> None:
+    if not RELEASE_NAME_PATTERN.fullmatch(version):
+        raise ValueError(
+            "release name must use letters, numbers, dots, dashes, or underscores"
+        )
+
+
+def next_release_name() -> str:
+    releases = json.loads(
+        subprocess.check_output(
+            ["gh", "release", "list", "--limit", "1000", "--json", "tagName"],
+            cwd=ROOT,
+            text=True,
+        )
+    )
+    numbers = []
+    for release in releases:
+        tag = release.get("tagName", "")
+        match = (
+            INTEGER_VERSION_PATTERN.fullmatch(tag)
+            or LEGACY_VERSION_PATTERN.fullmatch(tag)
+        )
+        if match:
+            numbers.append(int(match.group(1)))
+    return f"v{max(numbers, default=0) + 1}"
 
 
 def tracked_dataset_files() -> list[Path]:
@@ -302,7 +326,7 @@ Third-party rights and the project's correction/removal process are described in
 
 
 def build(version: str, output_dir: Path) -> tuple[Path, Path]:
-    validate_version(version)
+    validate_release_name(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -385,7 +409,11 @@ def ensure_publishable() -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("version", help="release tag, for example v0.1.0")
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="release name; defaults to the next vN from GitHub",
+    )
     parser.add_argument(
         "--draft", action="store_true", help="create a private GitHub draft release"
     )
@@ -407,12 +435,14 @@ def main() -> None:
         parser.error("--sync-hosted with --draft also requires --push")
 
     try:
-        validate_version(args.version)
+        version = args.version or next_release_name()
+        validate_release_name(version)
+        print(f"Using release name {version}")
         if args.sync_hosted:
-            sync_hosted_dataset(args.version)
+            sync_hosted_dataset(version)
         if args.push:
             subprocess.run(["git", "push"], cwd=ROOT, check=True)
-        archive, notes = build(args.version, ROOT / "dist")
+        archive, notes = build(version, ROOT / "dist")
         print(f"Built {archive.relative_to(ROOT)}")
         print(f"Built {notes.relative_to(ROOT)}")
         if args.draft:
@@ -422,12 +452,12 @@ def main() -> None:
                     "gh",
                     "release",
                     "create",
-                    args.version,
+                    version,
                     str(archive),
                     "--target",
                     head,
                     "--title",
-                    f"Dataset {args.version}",
+                    f"Dataset {version}",
                     "--notes-file",
                     str(notes),
                     "--draft",
@@ -435,7 +465,7 @@ def main() -> None:
                 cwd=ROOT,
                 check=True,
             )
-            verify_uploaded_release(args.version, head)
+            verify_uploaded_release(version, head)
             print("Verified uploaded archive and GitHub digest")
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
