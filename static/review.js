@@ -31,6 +31,8 @@ let autosaveTimer = null;
 let saveChain = Promise.resolve();
 let hostedMode = false;
 let claimHeartbeat = null;
+let queueIds = null;
+let prioritizeLeastRecent = true;
 const view = { zoom: 1, x: 0, y: 0, fit: 1 };
 
 function setStatus(message, error = false) {
@@ -87,19 +89,39 @@ async function loadPublishedSvg(url) {
 async function refreshItems() {
   const response = await api('/api/items');
   items = response.items;
+  if (!queueIds) rebuildQueue();
   refreshProgressText();
   return response;
 }
 
-function visibleItems() {
+function matchesQueueFilters(item) {
   const filter = $('#filter').value;
-  return items.filter(item => {
-    const workflowFilter = ['never_worked', 'pending_review', 'in_catalog'].includes(filter);
-    const statusMatches = filter === 'all' ||
-      (workflowFilter ? item.workflow_status === filter : item.rating === filter);
-    const claimMatches = filter !== 'never_worked' || !item.claimed_by;
-    return statusMatches && claimMatches && matchesCatalogFilters(item);
-  });
+  const workflowFilter = ['never_worked', 'pending_review', 'in_catalog'].includes(filter);
+  const statusMatches = filter === 'all' ||
+    (workflowFilter ? item.workflow_status === filter : item.rating === filter);
+  const claimMatches = filter !== 'never_worked' || !item.claimed_by;
+  return statusMatches && claimMatches && matchesCatalogFilters(item);
+}
+
+function orderedQueue(candidates) {
+  if (!hostedMode || !prioritizeLeastRecent || $('#filter').value !== 'never_worked') {
+    return candidates;
+  }
+  return [...candidates].sort((left, right) =>
+    (left.last_opened_at ?? -Infinity) - (right.last_opened_at ?? -Infinity));
+}
+
+function rebuildQueue() {
+  queueIds = orderedQueue(items.filter(matchesQueueFilters)).map(item => item.id);
+}
+
+function visibleItems() {
+  const matching = new Map(
+    items.filter(matchesQueueFilters).map(item => [item.id, item]),
+  );
+  return (queueIds || [...matching.keys()])
+    .map(itemId => matching.get(itemId))
+    .filter(Boolean);
 }
 
 function prefetchPriority(visible = visibleItems(), currentId = current?.id) {
@@ -291,6 +313,7 @@ async function applyFilters() {
   if (!hostedMode && current && (metadataDirty || editsDirty)) {
     try { await save('pending'); } catch (_) { return; }
   }
+  rebuildQueue();
   const visible = visibleItems();
   refreshProgressText();
   if (!visible.length) {
@@ -339,6 +362,7 @@ async function loadItem(itemId) {
     const loaded = await Promise.all(images);
 
     current = items.find(item => item.id === itemId);
+    if (hostedMode) current.last_opened_at = Date.now() / 1000;
     state = details.state;
     sourceImage = loaded[0];
     rembgImage = loaded[1];
@@ -803,7 +827,8 @@ async function saveAndNext() {
   if (state.rating !== 'unusable' && !state.main_length) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
-  const oldIndex = items.findIndex(item => item.id === current.id);
+  const orderedIds = queueIds || items.map(item => item.id);
+  const oldIndex = orderedIds.indexOf(current.id);
   try {
     await save('done');
     clearInterval(claimHeartbeat);
@@ -815,9 +840,12 @@ async function saveAndNext() {
     showEmptyState();
     return setStatus(hostedMode ? 'Submitted for review' : 'Queue complete');
   }
-  const next = items.slice(oldIndex + 1).concat(items.slice(0, oldIndex + 1))
-    .find(item => candidates.some(candidate => candidate.id === item.id));
-  if (next) await loadItem(next.id);
+  const candidateIds = new Set(candidates.map(item => item.id));
+  const followingIds = oldIndex < 0
+    ? orderedIds
+    : orderedIds.slice(oldIndex + 1).concat(orderedIds.slice(0, oldIndex));
+  const nextId = followingIds.find(itemId => candidateIds.has(itemId));
+  if (nextId) await loadItem(nextId);
 }
 
 async function downloadCurrent() {
@@ -1066,6 +1094,31 @@ $('#download-current').addEventListener('click', downloadCurrent);
 $('#save-next').addEventListener('click', saveAndNext);
 $('#filter').addEventListener('change', applyFilters);
 $('#type-filter').addEventListener('change', applyFilters);
+$('#queue-order').addEventListener('change', () => {
+  prioritizeLeastRecent = $('#queue-order').value === 'least-recent';
+  try {
+    localStorage.setItem(
+      'silicone-shadows-queue-order',
+      prioritizeLeastRecent ? 'least-recent' : 'catalog',
+    );
+  } catch (_) {}
+  applyFilters();
+});
+function setFiltersOpen(open) {
+  $('#filters-panel').hidden = !open;
+  $('#filters-toggle').setAttribute('aria-expanded', String(open));
+}
+$('#filters-toggle').addEventListener('click', () =>
+  setFiltersOpen($('#filters-panel').hidden));
+document.addEventListener('click', event => {
+  if (!$('#catalog-filters').contains(event.target)) setFiltersOpen(false);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !$('#filters-panel').hidden) {
+    setFiltersOpen(false);
+    $('#filters-toggle').focus();
+  }
+});
 let filterTimer = null;
 for (const input of $$('#catalog-filters input')) {
   input.addEventListener('input', () => {
@@ -1136,6 +1189,11 @@ try {
     const session = await window.appNavigationReady;
     hostedMode = session.hosted;
     if (hostedMode) {
+      try {
+        prioritizeLeastRecent = localStorage.getItem('silicone-shadows-queue-order') !== 'catalog';
+      } catch (_) {}
+      $('#queue-order-field').hidden = false;
+      $('#queue-order').value = prioritizeLeastRecent ? 'least-recent' : 'catalog';
       $('#save-label').textContent = 'Submit';
       $('#source-info').textContent = 'Moving to another product discards unfinished work.';
     }

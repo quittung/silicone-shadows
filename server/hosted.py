@@ -72,6 +72,10 @@ class HostedStore:
                     claimed_at REAL NOT NULL,
                     heartbeat_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS item_activity (
+                    item_id TEXT PRIMARY KEY,
+                    last_opened_at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS submissions (
                     item_id TEXT PRIMARY KEY,
                     user_id INTEGER NOT NULL REFERENCES users(id),
@@ -221,6 +225,10 @@ class HostedStore:
                     "INSERT INTO claims VALUES (?, ?, ?, ?)",
                     (item_id, user.id, now, now),
                 )
+                db.execute(
+                    "INSERT OR REPLACE INTO item_activity VALUES (?, ?)",
+                    (item_id, now),
+                )
                 claimed_at = now
         return expired, claimed_at + CLAIM_MAX_SECONDS
 
@@ -318,6 +326,13 @@ class HostedStore:
             for row in rows
             if row["item_id"] not in expired
         }
+
+    def item_activity(self) -> dict[str, float]:
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT item_id, last_opened_at FROM item_activity"
+            ).fetchall()
+        return {row["item_id"]: row["last_opened_at"] for row in rows}
 
     def put_submission(
         self,

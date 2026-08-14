@@ -155,11 +155,15 @@ class HostedAppTest(unittest.TestCase):
 
         item = alice.get("/api/items").json()["items"][0]
         self.assertEqual(item["workflow_status"], "never_worked")
+        self.assertIsNone(item["last_opened_at"])
         selected = alice.post("/api/prefetch", json={"item_ids": ["sample"]})
         self.assertEqual(selected.json(), {"selected": 1})
         prepared = alice.post("/api/items/sample/prepare")
         self.assertEqual(prepared.status_code, 200, prepared.text)
         self.assertIsNotNone(prepared.json()["claim_expires_at"])
+        self.assertIsNotNone(
+            alice.get("/api/items").json()["items"][0]["last_opened_at"]
+        )
         self.assertEqual(alice.get("/api/items/sample/file/source").status_code, 200)
         self.assertEqual(bob.get("/api/items/sample/file/source").status_code, 409)
         conflict = bob.post("/api/items/sample/prepare")
@@ -690,6 +694,26 @@ class HostedAppTest(unittest.TestCase):
         with patch("server.hosted.time.time", return_value=3182):
             discarded, _ = self.store.acquire_claim("sample", user)
             self.assertEqual(discarded, ["sample"])
+
+    def test_item_activity_tracks_new_claims_without_user_identity(self) -> None:
+        _, user = self.store.redeem_invite(self.store.create_invite("Alice"))
+        with patch("server.hosted.time.time", return_value=1000):
+            self.store.acquire_claim("sample", user)
+        self.assertEqual(self.store.item_activity(), {"sample": 1000})
+
+        with patch("server.hosted.time.time", return_value=1100):
+            self.store.heartbeat("sample", user)
+        self.assertEqual(self.store.item_activity(), {"sample": 1000})
+
+        self.store.release_claims(user, "sample")
+        with patch("server.hosted.time.time", return_value=1200):
+            self.store.acquire_claim("sample", user)
+        self.assertEqual(self.store.item_activity(), {"sample": 1200})
+        with self.store.connect() as db:
+            self.assertEqual(
+                [row["name"] for row in db.execute("PRAGMA table_info(item_activity)")],
+                ["item_id", "last_opened_at"],
+            )
 
     def test_public_queue_rate_limit_is_in_memory(self) -> None:
         queue = PublicQueue()

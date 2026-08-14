@@ -55,6 +55,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
     @app.get("/api/items")
     def list_items(request: Request) -> dict:
         claims = store.claims() if store else {}
+        activity = store.item_activity() if store else {}
         submissions = (
             {row["item_id"]: row for row in store.submissions()} if store else {}
         )
@@ -86,6 +87,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 directory,
             ) in workspace.independent_records().items()
         )
+        if store:
+            for item in items:
+                item["last_opened_at"] = activity.get(item["id"])
         return {
             "items": items,
             "total": len(items),

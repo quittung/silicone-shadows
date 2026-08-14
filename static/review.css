@@ -24,16 +24,22 @@ button, select {
 button { cursor: pointer; }
 button:hover:not(:disabled), button.active { border-color: var(--accent); background: #263943; }
 button:disabled { opacity: .45; cursor: default; }
-.app-header { position: relative; }
-#catalog-filters {
-  position: absolute; left: 50%; transform: translateX(-50%);
-  width: min(44vw, 58rem); min-width: 24rem; display: grid;
-  grid-template-columns: minmax(7rem, .8fr) repeat(3, minmax(5rem, 1fr)) auto; gap: .4rem;
+.app-header { position: relative; z-index: 5; }
+#catalog-filters { position: relative; }
+#filters-toggle { white-space: nowrap; }
+#filters-panel {
+  position: absolute; top: calc(100% + .55rem); left: 0; z-index: 10;
+  width: min(22rem, calc(100vw - 2rem)); display: grid; gap: .55rem;
+  padding: .75rem; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 .7rem 2rem rgb(0 0 0 / 45%);
 }
-#catalog-filters input, #catalog-filters select {
+#filters-panel[hidden] { display: none; }
+#filters-panel label { display: grid; gap: .2rem; color: var(--muted); font-size: .85rem; }
+#filters-panel input, #filters-panel select {
   min-width: 0; width: 100%; color: var(--text); background: #252c34;
   border: 1px solid var(--border); border-radius: 6px; padding: .45rem .6rem;
 }
+#clear-filters { width: 100%; margin-top: .15rem; }
 #title { min-width: 8rem; max-width: 16rem; flex: 1 1 16rem; }
 #filename { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #progress { color: var(--muted); font-size: .86rem; }
@@ -123,15 +129,10 @@ dialog li { margin: .35rem 0; }
 dialog .close { display: block; margin: 1.1rem 0 0 auto; }
 @media (max-width: 1320px) {
   header { height: auto; min-height: 58px; flex-wrap: wrap; }
-  #catalog-filters {
-    position: static; transform: none; width: 100%; max-width: none;
-    min-width: 0; flex-basis: 100%; order: 2;
-  }
   #title { max-width: none; }
 }
 @media (max-width: 850px) {
   header { height: auto; flex-wrap: wrap; }
-  #catalog-filters { min-width: 0; flex-basis: 100%; order: 2; }
   main { grid-template-columns: 1fr; grid-template-rows: minmax(50vh, 1fr) auto; overflow: auto; }
   aside { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
   body { height: auto; min-height: 100dvh; display: block; overflow: auto; }

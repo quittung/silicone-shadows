@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css?v=20260814-2">
+  <link rel="stylesheet" href="/static/review.css?v=20260814-4">
   <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
   <link rel="stylesheet" href="/static/metadata.css">
 </head>
@@ -17,19 +17,36 @@
     </div>
     <button id="next" title="Next item">→</button>
     <div id="catalog-filters">
-      <select id="filter" aria-label="Queue status or rating">
-        <option value="never_worked">Never worked on</option>
-        <option value="pending_review">Pending review</option>
-        <option value="in_catalog">In catalog</option>
-        <option value="all">All</option>
-        <option value="good">Good</option>
-        <option value="bad_perspective">Bad perspective</option>
-        <option value="unusable">Unusable</option>
-      </select>
-      <input id="name-filter" type="search" placeholder="Name contains…" aria-label="Filter by product name">
-      <input id="vendor-filter" type="search" placeholder="Vendor contains…" aria-label="Filter by vendor">
-      <select id="type-filter" aria-label="Filter by product type"><option value="">All types</option></select>
-      <button id="clear-filters">Clear</button>
+      <button id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters-panel">Filters</button>
+      <div id="filters-panel" hidden>
+        <label>Queue
+          <select id="filter">
+            <option value="never_worked">Never worked on</option>
+            <option value="pending_review">Pending review</option>
+            <option value="in_catalog">In catalog</option>
+            <option value="all">All</option>
+            <option value="good">Good</option>
+            <option value="bad_perspective">Bad perspective</option>
+            <option value="unusable">Unusable</option>
+          </select>
+        </label>
+        <label>Product name
+          <input id="name-filter" type="search" placeholder="Contains…">
+        </label>
+        <label>Vendor
+          <input id="vendor-filter" type="search" placeholder="Contains…">
+        </label>
+        <label>Product type
+          <select id="type-filter"><option value="">All types</option></select>
+        </label>
+        <label id="queue-order-field" hidden>Order
+          <select id="queue-order">
+            <option value="least-recent">Least recently opened</option>
+            <option value="catalog">Catalog order</option>
+          </select>
+        </label>
+        <button id="clear-filters" type="button">Clear filters</button>
+      </div>
     </div>
     <div data-app-nav="editor"></div>
     <button id="help" title="Review instructions" aria-label="Review instructions">?</button>
@@ -172,6 +189,6 @@
 
   <script src="/static/nav.js?v=20260814-1"></script>
   <script src="/static/metadata.js"></script>
-  <script src="/static/review.js?v=20260814-3"></script>
+  <script src="/static/review.js?v=20260814-5"></script>
 </body>
 </html>
