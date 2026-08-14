@@ -5,6 +5,7 @@
   const nav = document.createElement('nav');
   nav.setAttribute('aria-label', 'Primary');
   const links = [
+    ['home', '/', 'Home'],
     ['editor', '/editor', 'Editor'],
     ['stats', '/stats', 'Stats'],
     ['compare', '/compare', 'Compare'],
