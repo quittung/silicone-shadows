@@ -1,6 +1,7 @@
 """Reviewer-only pending-submission routes."""
 
 import shutil
+from typing import Literal
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
@@ -9,6 +10,8 @@ from fastapi.responses import FileResponse, Response
 from ..artifacts import length_preview
 from ..models import IndependentSubmission, IndependentUpdate, ReviewState
 from ..workspace import Workspace
+
+Rating = Literal["unusable", "bad_perspective", "good"]
 
 
 def register(app: FastAPI, workspace: Workspace) -> None:
@@ -107,27 +110,40 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         return FileResponse(path, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/moderation/submissions/{item_id}/approve")
-    def approve_submission(item_id: str, request: Request) -> Response:
+    def approve_submission(
+        item_id: str, request: Request, rating: Rating | None = None
+    ) -> Response:
         require_reviewer(request)
         submission = store.submission(item_id)
         if not submission:
             raise HTTPException(status_code=404, detail="pending submission not found")
         pending = workspace.pending_paths(item_id)
+        if rating == "unusable" and submission["kind"] != "catalog":
+            raise HTTPException(
+                status_code=400,
+                detail="independent products cannot be rated unusable",
+            )
         if submission["kind"] == "independent":
             if not pending["svg"].is_file():
                 raise HTTPException(
                     status_code=500, detail="pending outline is missing"
                 )
             state = IndependentSubmission.model_validate_json(submission["state_json"])
+            if rating:
+                state.metadata.quality = rating
             workspace.publish_independent(item_id, state, pending["svg"])
         elif submission["kind"] == "independent_update":
             state = IndependentUpdate.model_validate_json(submission["state_json"])
+            if rating:
+                state.metadata.quality = rating
             try:
                 workspace.update_independent(state.record_id, state.metadata)
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
         else:
             state = ReviewState.model_validate_json(submission["state_json"])
+            if rating:
+                state.rating = rating
             svg_path = pending["svg"] if state.rating != "unusable" else None
             if svg_path and not svg_path.is_file():
                 raise HTTPException(

@@ -276,7 +276,9 @@ class HostedAppTest(unittest.TestCase):
             if element.get("id") == "main-length"
         )
         self.assertEqual(stored_line.get("display"), "none")
-        approved = moderator.post("/api/moderation/submissions/sample/approve")
+        approved = moderator.post(
+            "/api/moderation/submissions/sample/approve?rating=bad_perspective"
+        )
         self.assertEqual(approved.status_code, 204, approved.text)
         record = json.loads(
             (self.dataset_dir / "vendor/type/sample/metadata.json").read_text()
@@ -284,7 +286,7 @@ class HostedAppTest(unittest.TestCase):
         self.assertEqual(
             set(record), {"schema_version", "catalog_id", "quality", "source"}
         )
-        self.assertEqual(record["quality"], "good")
+        self.assertEqual(record["quality"], "bad_perspective")
         self.assertTrue((self.dataset_dir / "vendor/type/sample/outline.svg").exists())
         self.assertFalse((self.pending_dir / "sample").exists())
         item = alice.get("/api/items").json()["items"][0]
@@ -334,6 +336,41 @@ class HostedAppTest(unittest.TestCase):
         self.assertTrue((self.work_dir / "sample/source.png").is_file())
         self.assertTrue((self.work_dir / "sample/rembg.png").is_file())
         self.assertFalse((self.work_dir / "sample/metadata.json").exists())
+
+    def test_moderator_can_override_catalog_rating_to_unusable(self) -> None:
+        alice = self.login("Alice")
+        moderator = self.login("Moderator", reviewer=True)
+        self.assertEqual(alice.post("/api/items/sample/prepare").status_code, 200)
+        submitted = alice.post(
+            "/api/items/sample/save",
+            data={
+                "state_json": json.dumps(
+                    {
+                        "status": "done",
+                        "rating": "good",
+                        "alpha_threshold": 128,
+                        "main_length": {"start": [8, 18], "end": [22, 5]},
+                    }
+                )
+            },
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        self.assertTrue((self.pending_dir / "sample/outline.svg").is_file())
+
+        invalid = moderator.post(
+            "/api/moderation/submissions/sample/approve?rating=unknown"
+        )
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        approved = moderator.post(
+            "/api/moderation/submissions/sample/approve?rating=unusable"
+        )
+        self.assertEqual(approved.status_code, 204, approved.text)
+        record_dir = self.dataset_dir / "vendor/type/sample"
+        self.assertEqual(
+            json.loads((record_dir / "metadata.json").read_text())["quality"],
+            "unusable",
+        )
+        self.assertFalse((record_dir / "outline.svg").exists())
 
     def test_abandoned_alternative_upload_is_deleted(self) -> None:
         alice = self.login("Alice")
@@ -455,12 +492,19 @@ class HostedAppTest(unittest.TestCase):
         independent = next(item for item in listing if item["item_id"] == item_id)
         self.assertEqual(independent["kind"], "independent")
         self.assertEqual(independent["products"][0]["name"], "Independent Product")
-        approved = moderator.post(f"/api/moderation/submissions/{item_id}/approve")
+        unsupported = moderator.post(
+            f"/api/moderation/submissions/{item_id}/approve?rating=unusable"
+        )
+        self.assertEqual(unsupported.status_code, 400, unsupported.text)
+        approved = moderator.post(
+            f"/api/moderation/submissions/{item_id}/approve?rating=bad_perspective"
+        )
         self.assertEqual(approved.status_code, 204, approved.text)
         record_path = (
             self.dataset_dir / "example-maker/type/independent-product/metadata.json"
         )
         record = json.loads(record_path.read_text())
+        self.assertEqual(record["quality"], "bad_perspective")
         self.assertIsNone(record["catalog_id"])
         self.assertEqual(record["record_id"], f"community:{item_id}")
         self.assertEqual(record["species"], "Dragon")
