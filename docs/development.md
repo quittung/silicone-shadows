@@ -50,6 +50,13 @@ inspecting the generated files under `dist/`, create a GitHub draft with:
 .venv/bin/python release_dataset.py --draft
 ```
 
+Check the current dataset against the latest published release without changing
+anything:
+
+```sh
+.venv/bin/python release_dataset.py --check
+```
+
 For a hosted deployment, put its SSH destination in the ignored `.env` file:
 
 ```dotenv
@@ -66,6 +73,8 @@ one run:
 
 Omit `--push --draft` to sync, commit, and build the archive locally. Syncing
 requires a clean checkout and mirrors the server dataset, including deletions.
+Add `--sync-hosted` to `--check` to also compare the hosted dataset using a
+temporary download, without syncing or modifying the checkout or server.
 
 The script validates every record and SVG before upload. It then downloads the
 draft archive again and verifies it against GitHub's SHA-256 digest, along with

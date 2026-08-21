@@ -83,6 +83,33 @@ class ReleaseDatasetTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release_dataset.hosted_dataset_source(env)
 
+    def test_snapshot_difference_counts_records_and_files(self):
+        released = release_dataset.snapshot(
+            [
+                ("a/metadata.json", b'{"quality":"good"}'),
+                ("a/outline.svg", b"old"),
+                ("removed.txt", b"removed"),
+            ]
+        )
+        current = release_dataset.snapshot(
+            [
+                ("a/metadata.json", b'{"quality":"good"}'),
+                ("a/outline.svg", b"new"),
+                ("b/metadata.json", b'{"quality":"unusable"}'),
+            ]
+        )
+        with patch("builtins.print") as output:
+            release_dataset.report_difference("Current", released, current)
+        output.assert_called_once_with(
+            "Current: +1 records; 1 files added, 1 changed, 1 removed"
+        )
+
+    def test_sync_hosted_can_extend_check_mode(self):
+        with patch("sys.argv", ["release_dataset.py", "--check", "--sync-hosted"]):
+            with patch("release_dataset.check_state") as check_state:
+                release_dataset.main()
+        check_state.assert_called_once_with(True)
+
     def test_rejects_non_canonical_outline(self):
         with tempfile.TemporaryDirectory() as directory:
             outline = Path(directory) / "outline.svg"
