@@ -10,6 +10,7 @@
 [data-app-nav] nav a:hover, [data-app-nav] nav a.active {
   color: var(--text); background: #28313a;
 }
+[data-app-nav] nav a[hidden] { display: none; }
 [data-app-nav] .nav-logout {
   width: auto; color: var(--text); background: #252c34; border: 1px solid var(--border);
   border-radius: 6px; padding: .48rem .7rem; font: inherit; cursor: pointer;
@@ -25,8 +26,9 @@
 @media (max-width: 700px) {
   .app-header { gap: .5rem; padding: .5rem .7rem; overflow: hidden; }
   .app-header > strong { flex: none; }
-  [data-app-nav] { min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  [data-app-nav] { min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scroll-padding-inline: .35rem; scrollbar-width: none; }
   [data-app-nav]::-webkit-scrollbar { display: none; }
   [data-app-nav] nav, [data-app-nav] .nav-logout { flex: none; }
+  [data-app-nav] nav { padding-right: .35rem; }
   [data-app-nav] nav a { display: inline-flex; align-items: center; min-height: 40px; white-space: nowrap; }
 }

@@ -1,4 +1,5 @@
 limit_req_zone $binary_remote_addr zone=silicone_guest:10m rate=2r/s;
+limit_req_zone $binary_remote_addr zone=silicone_compare:10m rate=10r/s;
 limit_conn_zone $binary_remote_addr zone=silicone_connections:10m;
 
 server {
@@ -45,6 +46,12 @@ server {
     location ^~ /api/public/ {
         limit_req zone=silicone_guest burst=10 nodelay;
         limit_conn silicone_connections 4;
+        proxy_pass http://127.0.0.1:8000;
+    }
+
+    location ^~ /api/comparison/ {
+        limit_req zone=silicone_compare burst=50 nodelay;
+        limit_conn silicone_connections 16;
         proxy_pass http://127.0.0.1:8000;
     }
 

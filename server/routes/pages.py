@@ -51,9 +51,24 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
                 if too_large:
                     return JSONResponse({"detail": "image is too large"}, 413)
         request.state.user = store.user_for_session(request.cookies.get(SESSION_COOKIE))
+        public_compare = request.method == "GET" and (
+            path
+            in {
+                "/compare",
+                "/api/comparison/products",
+                "/static/nav.css",
+                "/static/nav.js",
+                "/static/select.css",
+            }
+            or (
+                path.startswith("/api/comparison/outlines/")
+                and path.endswith(".svg")
+            )
+        )
         public = (
             path == "/"
             or path == "/api/session"
+            or public_compare
             or path
             in {
                 "/static/public.css",

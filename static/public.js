@@ -5,6 +5,8 @@ const editorScreen = $('#editor-screen');
 const uploadCard = $('#upload-card');
 const picker = $('#image');
 const uploadButton = $('#upload');
+const compareAction = $('#compare-choice .choice-action');
+const ageGate = $('#age-gate');
 const canvas = $('#canvas');
 const wrap = $('#canvas-wrap');
 const ctx = canvas.getContext('2d');
@@ -30,6 +32,18 @@ let sessionUser = null;
 let productMetadata = null;
 let archiveProof = null;
 const view = {zoom: 1, x: 0, y: 0, fit: 1};
+
+compareAction.addEventListener('click', event => {
+  try {
+    if (localStorage.getItem('silicone_shadows_age_confirmed') === '1') return;
+  } catch (_) {}
+  event.preventDefault();
+  ageGate.showModal();
+});
+$('#confirm-age').addEventListener('click', () => {
+  try { localStorage.setItem('silicone_shadows_age_confirmed', '1'); } catch (_) {}
+  location.href = compareAction.href;
+});
 
 function setStatus(target, message, error = false) {
   target.textContent = message;
@@ -647,13 +661,13 @@ fetch('/api/session').then(json).then(session => {
   $('#guest-contact').hidden = Boolean(sessionUser);
   $('#session-status').textContent = sessionUser
     ? `Signed in as ${sessionUser.name}. Choose a starting point.`
-    : 'Continue as a guest to turn a product photo into a downloadable outline and metadata. Your work stays separate from the catalog and won’t be submitted for review.';
+    : 'See how silicone sculptures stack up. Compare shapes and sizes at the same scale, or create an outline from your own photo.';
   $('#independent-title').textContent = sessionUser
     ? 'Create a new product entry'
-    : 'Choose a photo';
+    : 'Create an outline from a photo';
   $('#independent-description').textContent = sessionUser
     ? 'Start from your own photo instead of Toybox data, then download the result or submit it for review.'
-    : 'Select, drop, or paste an image to get started.';
+    : 'Select, drop, or paste a product photo to remove its background and edit the outline.';
   $('#retention-hint').textContent = sessionUser
     ? 'Download your work or submit it for review.'
     : 'Nothing is saved on the server; download before leaving.';

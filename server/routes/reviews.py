@@ -6,6 +6,7 @@ import secrets
 import shutil
 import zipfile
 from io import BytesIO
+from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import numpy as np
@@ -220,7 +221,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             "product_types": workspace.breakdown(records, "pt"),
         }
 
-    def build_comparison_snapshot() -> tuple[bytes, str]:
+    def build_comparison_snapshot() -> tuple[
+        bytes, str, dict[str, tuple[Path, str]]
+    ]:
         def largest_circumference(*values: object) -> float | int | None:
             measurements = [
                 value
@@ -230,6 +233,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             return max(measurements, default=None)
 
         products = []
+        outlines = {}
+
+        def outline_url(kind: str, item_id: object, path: Path) -> str:
+            outline_id = hashlib.sha256(f"{kind}:{item_id}".encode()).hexdigest()
+            version = str(path.stat().st_mtime_ns)
+            outlines[outline_id] = (path, version)
+            return f"/api/comparison/outlines/{outline_id}.svg?v={version}"
+
         for record in workspace.catalog_records():
             if not record["comparable"]:
                 continue
@@ -261,10 +272,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
                     ),
                     "main_length": main_length.model_dump(mode="json"),
-                    "svg_url": (
-                        f"/api/products/{quote(str(product['id']), safe='')}/outline.svg"
-                        f"?v={outline.stat().st_mtime_ns}"
-                    ),
+                    "svg_url": outline_url("catalog", product["id"], outline),
                     "sizes": [
                         {
                             "index": index,
@@ -339,10 +347,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "vendor_url": vendor_url,
                     "toybox_url": None,
                     "main_length": svg_main_length(outline).model_dump(mode="json"),
-                    "svg_url": (
-                        f"/api/community/{quote(record_id, safe='')}/outline.svg"
-                        f"?v={outline.stat().st_mtime_ns}"
-                    ),
+                    "svg_url": outline_url("community", record_id, outline),
                     "sizes": sizes,
                 }
             )
@@ -352,32 +357,46 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         body = json.dumps(
             {"products": products}, ensure_ascii=False, separators=(",", ":")
         ).encode()
-        return body, f'"{hashlib.sha256(body).hexdigest()}"'
+        return body, f'"{hashlib.sha256(body).hexdigest()}"', outlines
 
-    comparison_snapshot = build_comparison_snapshot()
+    comparison_body, comparison_etag, comparison_outlines = (
+        build_comparison_snapshot()
+    )
 
     @app.get("/api/comparison/products")
     def comparison_products(request: Request) -> Response:
-        body, etag = comparison_snapshot
         headers = {
-            "Cache-Control": "private, max-age=0, must-revalidate",
-            "ETag": etag,
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+            "ETag": comparison_etag,
         }
-        if request.headers.get("if-none-match") == etag:
+        if request.headers.get("if-none-match") == comparison_etag:
             return Response(status_code=304, headers=headers)
         return Response(
-            body,
+            comparison_body,
             media_type="application/json",
             headers=headers,
         )
 
+    @app.get("/api/comparison/outlines/{outline_id}.svg")
+    def comparison_outline(outline_id: str, v: str | None = None) -> Response:
+        outline = comparison_outlines.get(outline_id)
+        if not outline or v != outline[1] or not outline[0].is_file():
+            raise HTTPException(status_code=404, detail="outline does not exist")
+        return FileResponse(
+            outline[0],
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        )
+
     @app.post("/api/comparison/reload")
     def reload_comparison(request: Request) -> Response:
-        nonlocal comparison_snapshot
+        nonlocal comparison_body, comparison_etag, comparison_outlines
         user = request.state.user
         if store and (not user or not user.reviewer):
             raise HTTPException(status_code=403, detail="reviewer access required")
-        comparison_snapshot = build_comparison_snapshot()
+        comparison_body, comparison_etag, comparison_outlines = (
+            build_comparison_snapshot()
+        )
         return Response(status_code=204)
 
     @app.post("/api/items/{item_id}/claim")

@@ -119,9 +119,9 @@ class HostedAppTest(unittest.TestCase):
     def test_invites_claims_submission_and_approval(self) -> None:
         anonymous = TestClient(self.app)
         landing = anonymous.get("/")
-        self.assertIn("Choose a photo", landing.text)
+        self.assertIn("Create an outline from a photo", landing.text)
         self.assertLess(
-            landing.text.index("Want to contribute"),
+            landing.text.index("Have questions"),
             landing.text.index('id="upload-form"'),
         )
         self.assertEqual(landing.headers["cache-control"], "no-store")
@@ -140,7 +140,30 @@ class HostedAppTest(unittest.TestCase):
         self.assertEqual(
             anonymous.get("/editor", follow_redirects=False).status_code, 303
         )
+        self.assertEqual(
+            anonymous.get("/stats", follow_redirects=False).status_code, 303
+        )
         self.assertEqual(anonymous.get("/api/items").status_code, 401)
+        self.assertEqual(anonymous.get("/compare").status_code, 200)
+        for asset in ("nav.css", "nav.js", "select.css"):
+            self.assertEqual(anonymous.get(f"/static/{asset}").status_code, 200)
+        comparison = anonymous.get("/api/comparison/products")
+        self.assertEqual(comparison.status_code, 200)
+        self.assertEqual(
+            comparison.headers["cache-control"],
+            "public, max-age=300, stale-while-revalidate=3600",
+        )
+        self.assertEqual(
+            anonymous.get(
+                "/api/comparison/outlines/missing.svg?v=1"
+            ).status_code,
+            404,
+        )
+        self.assertEqual(anonymous.post("/api/comparison/reload").status_code, 401)
+        self.assertEqual(
+            anonymous.post("/api/community/anything/metadata", json={}).status_code,
+            401,
+        )
 
         alice = self.login("Alice")
         bob = self.login("Bob")

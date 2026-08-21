@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/public.css?v=20260814-1">
+  <link rel="stylesheet" href="/static/public.css?v=20260822-4">
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
   <link rel="stylesheet" href="/static/metadata.css">
 </head>
@@ -19,16 +19,22 @@
         <button id="landing-logout" hidden>Log out</button>
       </header>
       <p id="guest-contact" class="guest-contact" hidden>
-        Want to contribute to the catalog or have questions? Contact <strong>qtng</strong> on Discord.
+        Have questions or want to contribute to the catalog? Contact <strong>qtng</strong> on Discord.
       </p>
       <div id="choices">
-        <a id="catalog-choice" class="choice" href="/editor" hidden>
+        <section id="compare-choice" class="choice">
+          <strong>Compare shapes and sizes</strong>
+          <span>Put product outlines side by side at the same scale.</span>
+          <a class="choice-action" href="/compare">Open comparison</a>
+        </section>
+        <section id="catalog-choice" class="choice" hidden>
           <strong>Work on the Toybox catalog</strong>
           <span>Pick an existing catalog product, correct its silhouette, then submit it for review or download it.</span>
-        </a>
+          <a class="choice-action" href="/editor">Open catalog editor</a>
+        </section>
         <section class="choice independent">
-          <strong id="independent-title">Choose a photo</strong>
-          <span id="independent-description">Select, drop, or paste an image to get started.</span>
+          <strong id="independent-title">Create an outline from a photo</strong>
+          <span id="independent-description">Select, drop, or paste a product photo to remove its background and edit the outline.</span>
           <form id="upload-form">
             <input id="image" name="image" type="file"
               accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff" required>
@@ -49,6 +55,18 @@
       </div>
     </main>
   </section>
+
+  <dialog id="age-gate" aria-labelledby="age-gate-title">
+    <form method="dialog" class="age-gate-form">
+      <h2 id="age-gate-title">Confirm your age</h2>
+      <p>The comparison includes adult products. You must be 18 or older to continue.</p>
+      <p class="age-gate-note">If you confirm, this browser will remember it.</p>
+      <div class="age-gate-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button id="confirm-age" value="confirm">I am 18 or older</button>
+      </div>
+    </form>
+  </dialog>
 
   <section id="editor-screen" hidden>
     <header>
@@ -133,6 +151,6 @@
   </section>
 
   <script src="/static/metadata.js"></script>
-  <script src="/static/public.js?v=20260821-2"></script>
+  <script src="/static/public.js?v=20260822-5"></script>
 </body>
 </html>

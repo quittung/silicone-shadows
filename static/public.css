@@ -45,16 +45,38 @@ p { color: var(--muted); }
 .guest-contact { margin: 1rem 0 0; }
 .choice {
   display: grid; gap: .35rem; padding: 1rem; border: 1px solid var(--border);
-  border-radius: 8px; background: #20262d; color: var(--text); text-decoration: none;
+  border-radius: 8px; background: #20262d; color: var(--text);
 }
-a.choice:hover { border-color: var(--accent); background: #22343c; }
 .choice strong { font-size: 1.05rem; }
 .choice span { color: var(--muted); }
+.choice .choice-action {
+  justify-self: stretch; margin-top: .35rem; padding: .5rem .75rem;
+  border: 1px solid #168da0; border-radius: 6px; background: #164b56; color: var(--text);
+  text-align: center; text-decoration: none;
+}
+.choice-action:hover { border-color: var(--accent); background: #195b68; }
+dialog {
+  width: min(26rem, calc(100% - 2rem)); padding: 0; color: var(--text);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+}
+dialog::backdrop { background: rgb(0 0 0 / 70%); }
+.age-gate-form { display: grid; gap: .8rem; padding: 1.2rem; }
+.age-gate-form h2, .age-gate-form p { margin: 0; }
+.age-gate-note { font-size: .85rem; }
+.age-gate-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .3rem; }
+#confirm-age { border-color: #168da0; background: #164b56; }
 #upload-form { display: grid; gap: .8rem; margin-top: .8rem; }
+#image { padding: .4rem; line-height: 1.5; }
+#image::file-selector-button {
+  margin: -.15rem .6rem -.15rem -.15rem; padding: .25rem .55rem;
+  color: var(--text); background: #343d47; border: 1px solid #56616d;
+  border-radius: 4px; font: inherit; cursor: pointer;
+}
 #upload, #download, #submit-review {
   padding: .7rem .9rem; border-color: #168da0; background: #164b56;
   text-align: center; text-decoration: none;
 }
+#upload-status:empty { display: none; }
 .privacy { margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: .88rem; }
 
 #editor-screen { height: 100dvh; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
@@ -109,4 +131,7 @@ button kbd { float: right; margin-left: .4rem; }
   aside { border-left: 0; border-top: 1px solid var(--border); overflow: visible; }
   .size-row { grid-template-columns: 1fr 1fr; }
   #finish-actions { grid-template-columns: 1fr; }
+}
+@media (max-width: 500px) {
+  .age-gate-actions { grid-template-columns: 1fr; }
 }

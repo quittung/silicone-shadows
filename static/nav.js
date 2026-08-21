@@ -27,7 +27,6 @@
     }
     nav.appendChild(link);
   }
-
   const logout = document.createElement('button');
   logout.id = 'logout';
   logout.className = 'nav-logout';
@@ -35,6 +34,13 @@
   logout.textContent = 'Log out';
   logout.hidden = true;
   root.append(nav, logout);
+  requestAnimationFrame(() => {
+    const active = nav.querySelector('.active');
+    if (!active) return;
+    const container = root.getBoundingClientRect();
+    const tab = active.getBoundingClientRect();
+    root.scrollLeft += tab.left - container.left - (container.width - tab.width) / 2;
+  });
 
   const moderateLink = document.querySelector('#moderate-link');
   function setModerationCount(count) {

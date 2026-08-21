@@ -140,24 +140,30 @@ class ReviewAppTest(unittest.TestCase):
                 )
                 self.assertAlmostEqual(products[0]["sizes"][0]["circumference_in"], 2)
                 self.assertIsNone(products[0]["toybox_url"])
+                self.assertIn("/api/comparison/outlines/", products[0]["svg_url"])
                 self.assertIn("?v=", products[0]["svg_url"])
                 outline_response = client.get(products[0]["svg_url"])
                 self.assertEqual(outline_response.status_code, 200)
                 self.assertEqual(
                     outline_response.headers["cache-control"],
-                    "private, max-age=31536000, immutable",
+                    "public, max-age=31536000, immutable",
                 )
                 self.assertEqual(
-                    client.get(products[0]["svg_url"].split("?", 1)[0]).headers[
-                        "cache-control"
-                    ],
-                    "no-store",
+                    client.get(products[0]["svg_url"].split("?", 1)[0]).status_code,
+                    404,
                 )
                 preview_response = client.get(
                     f"{products[0]['svg_url']}&show_length=true"
                 )
-                self.assertEqual(preview_response.headers["cache-control"], "no-store")
+                self.assertEqual(
+                    preview_response.headers["cache-control"],
+                    "public, max-age=31536000, immutable",
+                )
                 etag = response.headers["etag"]
+                self.assertEqual(
+                    response.headers["cache-control"],
+                    "public, max-age=300, stale-while-revalidate=3600",
+                )
                 self.assertEqual(
                     client.get(
                         "/api/comparison/products", headers={"If-None-Match": etag}
@@ -566,7 +572,7 @@ class ReviewAppTest(unittest.TestCase):
                     self.assertEqual(outline_response.status_code, 200)
                     self.assertEqual(
                         outline_response.headers["cache-control"],
-                        "private, max-age=31536000, immutable",
+                        "public, max-age=31536000, immutable",
                     )
                     restarted = fresh_client.post("/api/items/sample/rereview")
                     self.assertEqual(restarted.status_code, 200, restarted.text)
