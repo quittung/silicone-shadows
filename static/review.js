@@ -964,8 +964,8 @@ canvas.addEventListener('pointerdown', event => {
     return;
   }
   const point = imagePoint(event);
-  if (!inside(point)) return;
   if (tool === 'length') {
+    if (!inside(point)) return;
     activeLength = { start: point, end: point };
     updateLineInfo();
     render();
@@ -984,7 +984,7 @@ canvas.addEventListener('auxclick', event => {
 
 canvas.addEventListener('pointermove', event => {
   const pointer = imagePoint(event);
-  hoverPoint = inside(pointer) ? pointer : null;
+  hoverPoint = sourceImage ? pointer : null;
   updateCanvasCursor();
   if (panning) {
     view.x = panning.ox + event.clientX - panning.x;

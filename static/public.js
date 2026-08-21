@@ -368,8 +368,8 @@ canvas.addEventListener('pointerdown', event => {
     return;
   }
   const point = imagePoint(event);
-  if (!inside(point)) return;
   if (tool === 'length') {
+    if (!inside(point)) return;
     activeLength = {start: point, end: point};
     updateLineInfo();
     return render();
@@ -385,7 +385,7 @@ canvas.addEventListener('pointerdown', event => {
 
 canvas.addEventListener('pointermove', event => {
   const point = imagePoint(event);
-  hoverPoint = inside(point) ? point : null;
+  hoverPoint = imageReady ? point : null;
   updateCanvasCursor();
   if (panning) {
     view.x = panning.ox + event.clientX - panning.x;
