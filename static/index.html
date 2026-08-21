@@ -19,9 +19,9 @@
     <div id="catalog-filters">
       <button id="filters-toggle" type="button" aria-expanded="false" aria-controls="filters-panel">Filters</button>
       <div id="filters-panel" hidden>
-        <label>Queue
+        <label>State
           <select id="filter">
-            <option value="never_worked">Never worked on</option>
+            <option value="available">Available for review</option>
             <option value="pending_review">Pending review</option>
             <option value="in_catalog">In catalog</option>
             <option value="all">All</option>
@@ -39,8 +39,8 @@
         <label>Product type
           <select id="type-filter"><option value="">All types</option></select>
         </label>
-        <label id="queue-order-field" hidden>Order
-          <select id="queue-order">
+        <label id="navigation-order-field" hidden>Order
+          <select id="navigation-order">
             <option value="least-recent">Least recently opened</option>
             <option value="catalog">Catalog order</option>
           </select>
@@ -87,7 +87,7 @@
         <div id="loading">Preparing mask…</div>
         <div id="empty-state">
           <div>
-            <h2 id="empty-title">Queue complete</h2>
+            <h2 id="empty-title">All matching products reviewed</h2>
             <p id="empty-message">All matching products have been reviewed.</p>
             <button id="show-all">Show all reviewed items</button>
             <p style="margin-top:1rem"><a href="/stats">View catalog progress →</a></p>
@@ -189,6 +189,7 @@
 
   <script src="/static/nav.js?v=20260814-2"></script>
   <script src="/static/metadata.js"></script>
-  <script src="/static/review.js?v=20260814-5"></script>
+  <script src="/static/review-url.js?v=20260821-3"></script>
+  <script src="/static/review.js?v=20260821-3"></script>
 </body>
 </html>

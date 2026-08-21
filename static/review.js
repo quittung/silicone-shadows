@@ -31,9 +31,39 @@ let autosaveTimer = null;
 let saveChain = Promise.resolve();
 let hostedMode = false;
 let claimHeartbeat = null;
-let queueIds = null;
+let navigationIds = null;
 let prioritizeLeastRecent = true;
 const view = { zoom: 1, x: 0, y: 0, fit: 1 };
+
+function editorUrlView(itemId = current?.id) {
+  return {
+    state: $('#filter').value,
+    name: $('#name-filter').value,
+    vendor: $('#vendor-filter').value,
+    type: $('#type-filter').value,
+    order: hostedMode ? $('#navigation-order').value : null,
+    item: itemId || '',
+  };
+}
+
+function updateEditorUrl(mode = 'replace', itemId = current?.id) {
+  if (mode === 'none') return;
+  const url = buildEditorUrl(location.pathname, editorUrlView(itemId));
+  if (url === `${location.pathname}${location.search}`) return;
+  history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', url);
+}
+
+function restoreEditorControls(urlState) {
+  $('#filter').value = urlState.state;
+  $('#name-filter').value = urlState.name;
+  $('#vendor-filter').value = urlState.vendor;
+  $('#type-filter').value = urlState.type;
+  if ($('#type-filter').value !== urlState.type) $('#type-filter').value = '';
+  if (hostedMode) {
+    prioritizeLeastRecent = urlState.order !== 'catalog';
+    $('#navigation-order').value = prioritizeLeastRecent ? 'least-recent' : 'catalog';
+  }
+}
 
 function setStatus(message, error = false) {
   $('#status').textContent = message;
@@ -89,37 +119,39 @@ async function loadPublishedSvg(url) {
 async function refreshItems() {
   const response = await api('/api/items');
   items = response.items;
-  if (!queueIds) rebuildQueue();
+  if (!navigationIds) rebuildNavigation();
   refreshProgressText();
   return response;
 }
 
-function matchesQueueFilters(item) {
-  const filter = $('#filter').value;
-  const workflowFilter = ['never_worked', 'pending_review', 'in_catalog'].includes(filter);
-  const statusMatches = filter === 'all' ||
-    (workflowFilter ? item.workflow_status === filter : item.rating === filter);
-  const claimMatches = filter !== 'never_worked' || !item.claimed_by;
-  return statusMatches && claimMatches && matchesCatalogFilters(item);
+function matchesFilters(item) {
+  const selectedState = $('#filter').value;
+  const workflowState = ['available', 'pending_review', 'in_catalog']
+    .includes(selectedState);
+  const workflowStatus = selectedState === 'available' ? 'never_worked' : selectedState;
+  const stateMatches = selectedState === 'all' ||
+    (workflowState ? item.workflow_status === workflowStatus : item.rating === selectedState);
+  const claimMatches = selectedState !== 'available' || !item.claimed_by;
+  return stateMatches && claimMatches && matchesCatalogFilters(item);
 }
 
-function orderedQueue(candidates) {
-  if (!hostedMode || !prioritizeLeastRecent || $('#filter').value !== 'never_worked') {
+function orderedView(candidates) {
+  if (!hostedMode || !prioritizeLeastRecent || $('#filter').value !== 'available') {
     return candidates;
   }
   return [...candidates].sort((left, right) =>
     (left.last_opened_at ?? -Infinity) - (right.last_opened_at ?? -Infinity));
 }
 
-function rebuildQueue() {
-  queueIds = orderedQueue(items.filter(matchesQueueFilters)).map(item => item.id);
+function rebuildNavigation() {
+  navigationIds = orderedView(items.filter(matchesFilters)).map(item => item.id);
 }
 
 function visibleItems() {
   const matching = new Map(
-    items.filter(matchesQueueFilters).map(item => [item.id, item]),
+    items.filter(matchesFilters).map(item => [item.id, item]),
   );
-  return (queueIds || [...matching.keys()])
+  return (navigationIds || [...matching.keys()])
     .map(itemId => matching.get(itemId))
     .filter(Boolean);
 }
@@ -221,18 +253,19 @@ async function releaseCurrentClaim() {
   } catch (_) {}
 }
 
-function showEmptyState() {
+function showEmptyState(title, message) {
   clearInterval(claimHeartbeat);
   const matchingCatalog = items.filter(matchesCatalogFilters);
   const complete = matchingCatalog.length > 0 &&
-    $('#filter').value === 'never_worked' &&
+    $('#filter').value === 'available' &&
     matchingCatalog.every(item => item.workflow_status !== 'never_worked');
-  $('#empty-title').textContent = complete ? 'Queue complete' : 'No matching products';
-  $('#empty-message').textContent = complete
+  const defaultTitle = complete ? 'All matching products reviewed' : 'No matching products';
+  $('#empty-title').textContent = title || defaultTitle;
+  $('#empty-message').textContent = message || (complete
     ? 'All products matching these catalog filters have been reviewed.'
-    : 'Change or clear the queue and catalog filters to continue.';
+    : 'Change or clear the filters to continue.');
   $('#empty-state').classList.add('visible');
-  $('#filename').textContent = complete ? 'Queue complete' : 'No matching products';
+  $('#filename').textContent = title || defaultTitle;
   sourceImage = null;
   rembgImage = null;
   state = null;
@@ -309,22 +342,34 @@ async function showPublishedItem(item) {
   }
 }
 
-async function applyFilters() {
+async function applyFilters(urlMode = 'push', preferredItemId, requirePreferred = false) {
   if (!hostedMode && current && (metadataDirty || editsDirty)) {
     try { await save('pending'); } catch (_) { return; }
   }
-  rebuildQueue();
+  rebuildNavigation();
   const visible = visibleItems();
   refreshProgressText();
+  const preferred = preferredItemId === undefined
+    ? visible.find(item => item.id === current?.id)
+    : visible.find(item => item.id === preferredItemId);
+  if (requirePreferred && !preferred) {
+    await releaseCurrentClaim();
+    await syncPrefetch([], null);
+    showEmptyState('Product not found', 'The linked product no longer exists.');
+    return updateEditorUrl(urlMode, preferredItemId);
+  }
   if (!visible.length) {
     await releaseCurrentClaim();
     await syncPrefetch([], null);
-    return showEmptyState();
+    showEmptyState();
+    return updateEditorUrl(urlMode, null);
   }
   $('#empty-state').classList.remove('visible');
-  if (!current || !visible.some(item => item.id === current.id)) {
-    await loadItem(visible[0].id);
+  const target = preferred || visible[0];
+  if (!current || target.id !== current.id) {
+    await loadItem(target.id, urlMode);
   } else {
+    updateEditorUrl(urlMode, current.id);
     await syncPrefetch(visible, current.id);
   }
 }
@@ -336,7 +381,7 @@ function configureOffscreen(width, height) {
   }
 }
 
-async function loadItem(itemId) {
+async function loadItem(itemId, urlMode = 'replace') {
   clearTimeout(autosaveTimer);
   if (hostedMode && current && current.id !== itemId) await releaseCurrentClaim();
   $('#empty-state').classList.remove('visible');
@@ -344,6 +389,7 @@ async function loadItem(itemId) {
   if (listed?.read_only) {
     await syncPrefetch([], null);
     await showPublishedItem(listed);
+    updateEditorUrl(urlMode, itemId);
     return;
   }
   $('#published-state').classList.remove('visible');
@@ -395,6 +441,7 @@ async function loadItem(itemId) {
     setStatus(hostedMode ? 'Claimed for up to 15 minutes' :
       state.status === 'done' ? 'Completed' : 'Draft autosaves locally');
     await syncPrefetch(visibleItems(), itemId);
+    updateEditorUrl(urlMode, itemId);
   } catch (error) {
     if (hostedMode) {
       current = state = sourceImage = rembgImage = null;
@@ -819,7 +866,7 @@ async function navigate(direction) {
   let index = visible.findIndex(item => item.id === current.id);
   if (index < 0) index = direction > 0 ? -1 : 0;
   index = (index + direction + visible.length) % visible.length;
-  await loadItem(visible[index].id);
+  await loadItem(visible[index].id, 'push');
 }
 
 async function saveAndNext() {
@@ -827,7 +874,7 @@ async function saveAndNext() {
   if (state.rating !== 'unusable' && !state.main_length) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
-  const orderedIds = queueIds || items.map(item => item.id);
+  const orderedIds = navigationIds || items.map(item => item.id);
   const oldIndex = orderedIds.indexOf(current.id);
   try {
     await save('done');
@@ -838,14 +885,15 @@ async function saveAndNext() {
   if (!candidates.length) {
     await syncPrefetch([], null);
     showEmptyState();
-    return setStatus(hostedMode ? 'Submitted for review' : 'Queue complete');
+    updateEditorUrl('push', null);
+    return setStatus(hostedMode ? 'Submitted for review' : 'All matching products reviewed');
   }
   const candidateIds = new Set(candidates.map(item => item.id));
   const followingIds = oldIndex < 0
     ? orderedIds
     : orderedIds.slice(oldIndex + 1).concat(orderedIds.slice(0, oldIndex));
   const nextId = followingIds.find(itemId => candidateIds.has(itemId));
-  if (nextId) await loadItem(nextId);
+  if (nextId) await loadItem(nextId, 'push');
 }
 
 async function downloadCurrent() {
@@ -1092,10 +1140,10 @@ $('#previous').addEventListener('click', () => navigate(-1));
 $('#next').addEventListener('click', () => navigate(1));
 $('#download-current').addEventListener('click', downloadCurrent);
 $('#save-next').addEventListener('click', saveAndNext);
-$('#filter').addEventListener('change', applyFilters);
-$('#type-filter').addEventListener('change', applyFilters);
-$('#queue-order').addEventListener('change', () => {
-  prioritizeLeastRecent = $('#queue-order').value === 'least-recent';
+$('#filter').addEventListener('change', () => applyFilters());
+$('#type-filter').addEventListener('change', () => applyFilters());
+$('#navigation-order').addEventListener('change', () => {
+  prioritizeLeastRecent = $('#navigation-order').value === 'least-recent';
   try {
     localStorage.setItem(
       'silicone-shadows-queue-order',
@@ -1120,10 +1168,16 @@ document.addEventListener('keydown', event => {
   }
 });
 let filterTimer = null;
+let textFilterHistoryMode = 'replace';
 for (const input of $$('#catalog-filters input')) {
+  input.addEventListener('focus', () => { textFilterHistoryMode = 'push'; });
   input.addEventListener('input', () => {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(applyFilters, 180);
+    filterTimer = setTimeout(() => {
+      const mode = textFilterHistoryMode;
+      textFilterHistoryMode = 'replace';
+      applyFilters(mode);
+    }, 180);
   });
 }
 $('#clear-filters').addEventListener('click', () => {
@@ -1167,6 +1221,19 @@ window.addEventListener('paste', event => {
   uploadAlternative(file);
 });
 window.addEventListener('resize', resizeCanvas);
+let historyNavigation = Promise.resolve();
+let historyNavigationVersion = 0;
+window.addEventListener('popstate', () => {
+  const version = ++historyNavigationVersion;
+  const urlState = parseEditorUrl(location.search);
+  historyNavigation = historyNavigation.then(async () => {
+    restoreEditorControls(urlState);
+    await applyFilters('none', urlState.item, urlState.directItem);
+    if (version === historyNavigationVersion && !urlState.directItem) {
+      updateEditorUrl('replace', current?.id);
+    }
+  }).catch(error => setStatus(error.message, true));
+});
 window.addEventListener('pagehide', () => {
   if (hostedMode && current && !current.read_only) {
     fetch(`/api/items/${encodeURIComponent(current.id)}/release`, {
@@ -1186,14 +1253,17 @@ try {
 
 (async () => {
   try {
+    const initialUrlState = parseEditorUrl(location.search);
     const session = await window.appNavigationReady;
     hostedMode = session.hosted;
     if (hostedMode) {
-      try {
-        prioritizeLeastRecent = localStorage.getItem('silicone-shadows-queue-order') !== 'catalog';
-      } catch (_) {}
-      $('#queue-order-field').hidden = false;
-      $('#queue-order').value = prioritizeLeastRecent ? 'least-recent' : 'catalog';
+      if (!initialUrlState.order) {
+        try {
+          initialUrlState.order = localStorage.getItem('silicone-shadows-queue-order') === 'catalog'
+            ? 'catalog' : 'least-recent';
+        } catch (_) { initialUrlState.order = 'least-recent'; }
+      }
+      $('#navigation-order-field').hidden = false;
       $('#save-label').textContent = 'Submit';
       $('#source-info').textContent = 'Moving to another product discards unfinished work.';
     }
@@ -1203,11 +1273,9 @@ try {
       option.value = option.textContent = type;
       $('#type-filter').append(option);
     }
+    restoreEditorControls(initialUrlState);
     await refreshItems();
-    const visible = visibleItems();
-    const first = visible[0];
-    if (first) await loadItem(first.id);
-    else showEmptyState();
+    await applyFilters('replace', initialUrlState.item, initialUrlState.directItem);
   } catch (error) {
     setStatus(error.message, true);
   }
