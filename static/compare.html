@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
   <title>Silicone Shadows · Compare</title>
   <style>
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --danger:#fb7185; }
     * { box-sizing:border-box; }
-    body { margin:0; height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; background:var(--bg); color:var(--text); }
+    body { margin:0; height:var(--app-height,100dvh); transform:translateY(var(--app-offset,0)); display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; background:var(--bg); color:var(--text); }
     main { display:grid; grid-template-columns:minmax(0,1fr) clamp(360px,25vw,520px); min-height:0; }
     aside { grid-column:2; grid-row:1; overflow-y:auto; padding:.8rem; background:var(--panel); border-left:1px solid var(--border); }
     fieldset { margin:0 0 .8rem; padding:.65rem; border:1px solid var(--border); border-radius:7px; }
@@ -69,6 +69,7 @@
     @media (max-width:700px) {
       main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,42dvh); }
       main.panel-collapsed { grid-template-rows:minmax(0,1fr) auto; }
+      body.keyboard-open main { grid-template-rows:0 minmax(0,1fr); }
       aside { grid-column:1; grid-row:2; padding:0 .65rem .65rem; border-top:0; border-left:0; }
       #canvas-wrap { grid-column:1; grid-row:1; }
       #mobile-panel-toggle { display:flex; position:sticky; top:0; z-index:2; align-items:center; justify-content:space-between; width:calc(100% + 1.3rem); min-height:48px; margin:0 -.65rem .65rem; padding:0 .85rem; border:0; border-bottom:1px solid var(--border); border-radius:0; background:#20262d; color:var(--text); font-weight:650; }
@@ -175,6 +176,7 @@
     const DEFAULT_PRODUCT_ID = 'reference:credit-card';
     let workspaceReady = false;
     let saveTimer = null;
+    let filterTimer = null;
     const outlineLoads = new Map();
 
     function setStatus(message, error=false) {
@@ -340,6 +342,7 @@
     }
 
     function filterProducts() {
+      clearTimeout(filterTimer);
       refreshFilterOptions();
       const name = $('#search').value.trim().toLowerCase();
       const vendor = $('#vendor').value.trim().toLowerCase();
@@ -1001,7 +1004,10 @@
       removeObject(selected);
     });
 
-    for (const input of [$('#search'), $('#vendor')]) input.addEventListener('input', filterProducts);
+    for (const input of [$('#search'), $('#vendor')]) input.addEventListener('input', () => {
+      clearTimeout(filterTimer);
+      filterTimer = setTimeout(filterProducts, 300);
+    });
     $('#type').addEventListener('change', filterProducts);
     $('#size-filter').addEventListener('change', filterProducts);
     $('#product').addEventListener('change', updateSizes);
@@ -1020,16 +1026,26 @@
       controls.scrollTop += $('#add-products').getBoundingClientRect().top -
         $('#mobile-panel-toggle').getBoundingClientRect().bottom;
     }
-    function revealFocusedInput() {
+    function syncMobileViewport() {
       const input = document.activeElement;
-      if (!matchMedia('(max-width:700px)').matches || !input?.matches('#controls input')) return;
+      const focused = matchMedia('(max-width:700px)').matches && input?.matches('#controls input');
+      const keyboardOpen = document.body.classList.contains('keyboard-open');
+      if (keyboardOpen !== Boolean(focused)) canvasSize = null;
+      document.body.classList.toggle('keyboard-open', Boolean(focused));
+      if (focused && window.visualViewport) {
+        document.documentElement.style.setProperty('--app-height', `${visualViewport.height}px`);
+        document.documentElement.style.setProperty('--app-offset', `${visualViewport.offsetTop}px`);
+      } else {
+        document.documentElement.style.removeProperty('--app-height');
+        document.documentElement.style.removeProperty('--app-offset');
+      }
+      if (!focused) return;
       requestAnimationFrame(() => {
         const rect = input.getBoundingClientRect();
         const top = $('#mobile-panel-toggle').getBoundingClientRect().bottom + 12;
-        const bottom = (window.visualViewport?.offsetTop || 0) +
-          (window.visualViewport?.height || innerHeight) - 12;
-        if (rect.bottom > bottom) $('#controls').scrollTop += rect.bottom - bottom;
-        else if (rect.top < top) $('#controls').scrollTop -= top - rect.top;
+        const bottom = $('#controls').getBoundingClientRect().bottom - 12;
+        const targetTop = top + Math.max(0, (bottom - top - rect.height) / 2);
+        $('#controls').scrollTop += rect.top - targetTop;
       });
     }
     let canvasSize = null;
@@ -1040,8 +1056,11 @@
       render();
       if (!collapsed) requestAnimationFrame(revealAddProducts);
     });
-    $('#controls').addEventListener('focusin', revealFocusedInput);
-    window.visualViewport?.addEventListener('resize', revealFocusedInput);
+    $('#controls').addEventListener('focusin', syncMobileViewport);
+    $('#controls').addEventListener('focusout', () => setTimeout(syncMobileViewport));
+    window.visualViewport?.addEventListener('resize', syncMobileViewport);
+    window.visualViewport?.addEventListener('scroll', syncMobileViewport);
+    addEventListener('resize', syncMobileViewport);
     addEventListener('pagehide', saveWorkspace);
     new ResizeObserver(() => {
       const nextSize = [wrap.clientWidth, wrap.clientHeight];
