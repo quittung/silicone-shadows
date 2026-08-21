@@ -3,10 +3,12 @@
 
 import argparse
 import hashlib
+import io
 import json
 import math
 import re
 import subprocess
+import tarfile
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
@@ -83,6 +85,123 @@ def tracked_dataset_files() -> list[Path]:
 
 def dataset_files() -> list[Path]:
     return sorted(path for path in (ROOT / "dataset").rglob("*") if path.is_file())
+
+
+def snapshot(contents: list[tuple[str, bytes]]) -> tuple[dict[str, str], Counter[str]]:
+    files = {}
+    qualities: Counter[str] = Counter()
+    for name, content in contents:
+        files[name] = hashlib.sha256(content).hexdigest()
+        if name.endswith("/metadata.json"):
+            quality = json.loads(content).get("quality")
+            if quality not in QUALITIES:
+                raise ValueError(f"{name} has invalid quality {quality!r}")
+            qualities[quality] += 1
+    return files, qualities
+
+
+def directory_snapshot(root: Path) -> tuple[dict[str, str], Counter[str]]:
+    return snapshot(
+        [
+            (path.relative_to(root).as_posix(), path.read_bytes())
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        ]
+    )
+
+
+def latest_release_snapshot() -> tuple[str, tuple[dict[str, str], Counter[str]]]:
+    release = json.loads(
+        subprocess.check_output(
+            ["gh", "release", "view", "--json", "tagName,targetCommitish"],
+            cwd=ROOT,
+            text=True,
+        )
+    )
+    tag = release["tagName"]
+    refs = (tag, release["targetCommitish"])
+    commit = None
+    for ref in refs:
+        try:
+            commit = git("rev-parse", "--verify", f"{ref}^{{commit}}")
+            break
+        except subprocess.CalledProcessError:
+            pass
+    if commit is None:
+        raise RuntimeError(f"release {tag} is not available in the local git history")
+
+    archive = subprocess.check_output(
+        ["git", "archive", "--format=tar", commit, "dataset"], cwd=ROOT
+    )
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+        contents = []
+        for member in bundle.getmembers():
+            if not member.isfile() or not member.name.startswith("dataset/"):
+                continue
+            source = bundle.extractfile(member)
+            if source is not None:
+                contents.append((member.name.removeprefix("dataset/"), source.read()))
+    return tag, snapshot(contents)
+
+
+def report_snapshot(
+    label: str, current: tuple[dict[str, str], Counter[str]]
+) -> None:
+    files, qualities = current
+    quality = ", ".join(f"{name}={qualities[name]}" for name in QUALITIES)
+    print(f"{label}: {sum(qualities.values())} records ({quality}), {len(files)} files")
+
+
+def report_difference(
+    label: str,
+    before: tuple[dict[str, str], Counter[str]],
+    after: tuple[dict[str, str], Counter[str]],
+) -> None:
+    before_files, before_qualities = before
+    after_files, after_qualities = after
+    added = after_files.keys() - before_files.keys()
+    removed = before_files.keys() - after_files.keys()
+    changed = {
+        name
+        for name in before_files.keys() & after_files.keys()
+        if before_files[name] != after_files[name]
+    }
+    record_delta = sum(after_qualities.values()) - sum(before_qualities.values())
+    if not added and not changed and not removed:
+        print(f"{label}: no changes")
+        return
+    print(
+        f"{label}: {record_delta:+d} records; "
+        f"{len(added)} files added, {len(changed)} changed, {len(removed)} removed"
+    )
+
+
+def check_state(include_hosted: bool) -> None:
+    tag, released = latest_release_snapshot()
+    local = directory_snapshot(ROOT / "dataset")
+    report_snapshot(f"Latest release {tag}", released)
+    report_snapshot("Local", local)
+    report_difference(f"Local vs {tag}", released, local)
+
+    if include_hosted:
+        with TemporaryDirectory() as directory:
+            hosted_root = Path(directory) / "dataset"
+            subprocess.run(
+                [
+                    "rsync",
+                    "--recursive",
+                    "--quiet",
+                    hosted_dataset_source(),
+                    f"{hosted_root}/",
+                ],
+                cwd=ROOT,
+                check=True,
+            )
+            hosted = directory_snapshot(hosted_root)
+        report_snapshot("Hosted", hosted)
+        report_difference(f"Hosted vs {tag}", released, hosted)
+        report_difference("Hosted vs local", local, hosted)
+    print("Check complete; no project or release state changed")
 
 
 def hosted_dataset_source(env_path: Path = ROOT / ".env") -> str:
@@ -420,12 +539,17 @@ def main() -> None:
     parser.add_argument(
         "--sync-hosted",
         action="store_true",
-        help="download, validate, and commit the hosted dataset first",
+        help="sync and commit hosted data, or include it in --check",
     )
     parser.add_argument(
         "--push",
         action="store_true",
         help="push the hosted dataset commit before creating a draft",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="compare the local dataset with the latest published release",
     )
     args = parser.parse_args()
 
@@ -433,8 +557,13 @@ def main() -> None:
         parser.error("--push requires --sync-hosted")
     if args.sync_hosted and args.draft and not args.push:
         parser.error("--sync-hosted with --draft also requires --push")
+    if args.check and (args.version or args.draft or args.push):
+        parser.error("--check cannot be combined with release actions or a version")
 
     try:
+        if args.check:
+            check_state(args.sync_hosted)
+            return
         version = args.version or next_release_name()
         validate_release_name(version)
         print(f"Using release name {version}")
