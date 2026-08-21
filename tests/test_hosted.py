@@ -152,6 +152,8 @@ class HostedAppTest(unittest.TestCase):
         self.assertEqual(moderator.get("/moderate").status_code, 200)
         self.assertEqual(alice.get("/stats").status_code, 200)
         self.assertEqual(alice.get("/compare").status_code, 200)
+        self.assertEqual(alice.post("/api/comparison/reload").status_code, 403)
+        self.assertEqual(moderator.post("/api/comparison/reload").status_code, 204)
 
         item = alice.get("/api/items").json()["items"][0]
         self.assertEqual(item["workflow_status"], "never_worked")

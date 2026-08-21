@@ -154,6 +154,7 @@
     const canvas = $('#canvas');
     const wrap = $('#canvas-wrap');
     const ctx = canvas.getContext('2d');
+    const hitCtx = document.createElement('canvas').getContext('2d');
     const palette = ['#dc2626','#2563eb','#16a34a','#9333ea','#ea580c','#0891b2','#db2777','#4f46e5'];
     let products = [];
     let shownProducts = [];
@@ -174,6 +175,7 @@
     const DEFAULT_PRODUCT_ID = 'reference:credit-card';
     let workspaceReady = false;
     let saveTimer = null;
+    const outlineLoads = new Map();
 
     function setStatus(message, error=false) {
       $('#status').textContent = message;
@@ -237,27 +239,27 @@
         view.x = saved.view.x;
         view.y = saved.view.y;
       }
-      const loadedByUrl = new Map();
-      let restoredSelected = null;
-      for (const item of saved.objects) {
+      const entries = saved.objects.map(item => {
         const product = products.find(product => String(product.id) === String(item.productId));
         const size = product?.sizes.find(size => size.index === Number(item.sizeIndex));
-        if (!product || !size) continue;
-        if (!loadedByUrl.has(product.svg_url)) {
-          loadedByUrl.set(product.svg_url, loadImage(product.svg_url));
-        }
-        try {
-          const loaded = await loadedByUrl.get(product.svg_url);
+        return product && size ? { item, product, size } : null;
+      }).filter(Boolean);
+      const loaded = await Promise.allSettled(
+        entries.map(({ product }) => loadOutline(product.svg_url)),
+      );
+      let restoredSelected = null;
+      entries.forEach(({ item, product, size }, index) => {
+        if (loaded[index].status === 'fulfilled') {
           const color = palette.includes(item.color) ? item.color : nextColor();
-          const object = addObject(product, size, loaded, color);
+          const object = addObject(product, size, loaded[index].value, color);
           if ([item.x, item.y].every(Number.isFinite)) {
             object.x = item.x;
             object.y = item.y;
           }
           if (Number.isFinite(item.rotation)) object.rotation = item.rotation;
           if (item.selected) restoredSelected = object;
-        } catch (_) {}
-      }
+        }
+      });
       selected = restoredSelected;
       setUnits(metric);
       return true;
@@ -268,8 +270,18 @@
       return product.sizes.filter(item => !size || item.label === size);
     }
 
-    async function loadImage(url) {
-      const response = await fetch(`${url}?v=${Date.now()}`);
+    function loadOutline(url) {
+      if (!outlineLoads.has(url)) {
+        outlineLoads.set(url, fetchOutline(url).catch(error => {
+          outlineLoads.delete(url);
+          throw error;
+        }));
+      }
+      return outlineLoads.get(url);
+    }
+
+    async function fetchOutline(url) {
+      const response = await fetch(url);
       if (!response.ok) throw new Error('Could not load reviewed SVG');
       const document = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
       const root = document.documentElement;
@@ -277,43 +289,33 @@
       if (!viewBox || viewBox.length !== 4 || !viewBox.every(Number.isFinite)) {
         throw new Error('Reviewed SVG has no valid viewBox');
       }
-      const rasterScale = 1200 / Math.max(viewBox[2], viewBox[3]);
-      root.setAttribute('width', String(Math.max(1, Math.round(viewBox[2] * rasterScale))));
-      root.setAttribute('height', String(Math.max(1, Math.round(viewBox[3] * rasterScale))));
-      const objectUrl = URL.createObjectURL(new Blob(
-        [new XMLSerializer().serializeToString(root)], { type: 'image/svg+xml' },
-      ));
-      const image = await new Promise((resolve, reject) => {
-        const image = new Image();
-        image.onload = () => resolve(image);
-        image.onerror = () => reject(new Error('Could not load reviewed SVG'));
-        image.src = objectUrl;
-      });
-      URL.revokeObjectURL(objectUrl);
-      return { image, rasterScale };
+      const source = root.querySelector('path#outline');
+      if (!source?.getAttribute('d')) throw new Error('Reviewed SVG has no outline path');
+      let transform = new DOMMatrix();
+      const nodes = [];
+      for (let node = source; node && node !== root; node = node.parentElement) {
+        nodes.unshift(node);
+      }
+      for (const node of nodes) {
+        const value = node.getAttribute('transform');
+        if (value) transform = transform.multiply(parseSvgTransform(value));
+      }
+      const path = new Path2D();
+      path.addPath(new Path2D(source.getAttribute('d')), transform);
+      return { path, width: viewBox[2], height: viewBox[3] };
     }
 
-    function tintImage(image, color, approximate=false) {
-      const tinted = document.createElement('canvas');
-      tinted.width = image.naturalWidth;
-      tinted.height = image.naturalHeight;
-      const target = tinted.getContext('2d');
-      target.drawImage(image, 0, 0);
-      target.globalCompositeOperation = 'source-in';
-      target.fillStyle = color;
-      target.fillRect(0, 0, tinted.width, tinted.height);
-      if (approximate) {
-        target.globalCompositeOperation = 'source-atop';
-        target.strokeStyle = 'rgba(255,255,255,.28)';
-        target.lineWidth = 6;
-        for (let offset = -tinted.height; offset < tinted.width; offset += 24) {
-          target.beginPath();
-          target.moveTo(offset, 0);
-          target.lineTo(offset + tinted.height, tinted.height);
-          target.stroke();
-        }
+    function parseSvgTransform(value) {
+      let result = new DOMMatrix();
+      for (const match of value.matchAll(/(matrix|translate|scale)\(([^)]+)\)/g)) {
+        const values = match[2].trim().split(/[\s,]+/).map(Number);
+        let next = new DOMMatrix();
+        if (match[1] === 'matrix') next = new DOMMatrix(values);
+        else if (match[1] === 'translate') next.translateSelf(values[0], values[1] || 0);
+        else next.scaleSelf(values[0], values[1] ?? values[0]);
+        result = result.multiply(next);
       }
-      return tinted;
+      return result;
     }
 
     function replaceFilterOptions(select, anyLabel, values) {
@@ -388,8 +390,7 @@
       if (previousSize) select.value = previousSize.value;
     }
 
-    function addObject(product, size, loaded, color,
-                       image=tintImage(loaded.image, color, product.rating === 'bad_perspective')) {
+    function addObject(product, size, loaded, color) {
       const start = product.main_length.start;
       const end = product.main_length.end;
       const [x, y] = screenToWorld(
@@ -397,10 +398,11 @@
         wrap.clientHeight / 2 + (objects.length % 5) * 12,
       );
       const object = {
-        id: nextId++, product, size, image, color, rasterScale: loaded.rasterScale,
+        id: nextId++, product, size, path: loaded.path, color,
+        width: loaded.width, height: loaded.height,
         midpoint: [
-          (start[0] + end[0]) / 2 * loaded.rasterScale,
-          (start[1] + end[1]) / 2 * loaded.rasterScale,
+          (start[0] + end[0]) / 2,
+          (start[1] + end[1]) / 2,
         ],
         rotation: -Math.PI / 2 - Math.atan2(end[1] - start[1], end[0] - start[0]),
         x, y,
@@ -494,7 +496,7 @@
       }
       try {
         setStatus('Loading outline…');
-        const loaded = await loadImage(product.svg_url);
+        const loaded = await loadOutline(product.svg_url);
         const color = nextColor();
         const object = addObject(product, size, loaded, color);
         placeObjects([object]);
@@ -526,7 +528,7 @@
         const { product, sizes } = variants[index];
         setStatus(`Loading ${index + 1} of ${variants.length} filtered products…`);
         try {
-          const loaded = await loadImage(product.svg_url);
+          const loaded = await loadOutline(product.svg_url);
           for (const size of sizes) {
             addedObjects.push(addObject(product, size, loaded, nextColor()));
             added++;
@@ -546,7 +548,7 @@
       const line = object.product.main_length;
       const pixels = Math.hypot(
         line.end[0] - line.start[0], line.end[1] - line.start[1],
-      ) * object.rasterScale;
+      );
       return object.size.length_in / pixels;
     }
 
@@ -639,7 +641,23 @@
         } else {
           ctx.globalAlpha = .68;
         }
-        ctx.drawImage(object.image, 0, 0);
+        ctx.fillStyle = object.color;
+        ctx.fill(object.path);
+        if (object.product.rating === 'bad_perspective') {
+          ctx.filter = 'none';
+          ctx.save();
+          ctx.clip(object.path);
+          const spacing = Math.max(object.width, object.height) / 50;
+          ctx.strokeStyle = 'rgba(255,255,255,.28)';
+          ctx.lineWidth = spacing / 4;
+          for (let offset = -object.height; offset < object.width; offset += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(offset, 0);
+            ctx.lineTo(offset + object.height, object.height);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
         ctx.restore();
       }
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -667,9 +685,8 @@
       for (let index = objects.length - 1; index >= 0; index--) {
         const object = objects[index];
         const point = localPoint(object, x, y);
-        if (point[0] < 0 || point[1] < 0 || point[0] >= object.image.width || point[1] >= object.image.height) continue;
-        const alpha = object.image.getContext('2d').getImageData(Math.floor(point[0]), Math.floor(point[1]), 1, 1).data[3];
-        if (alpha > 10) return object;
+        if (point[0] < 0 || point[1] < 0 || point[0] >= object.width || point[1] >= object.height) continue;
+        if (hitCtx.isPointInPath(object.path, point[0], point[1])) return object;
       }
       return null;
     }
@@ -721,8 +738,8 @@
       const scale = objectScale(object);
       const cosine = Math.cos(object.rotation), sine = Math.sin(object.rotation);
       return [
-        [0, 0], [object.image.width, 0],
-        [object.image.width, object.image.height], [0, object.image.height],
+        [0, 0], [object.width, 0],
+        [object.width, object.height], [0, object.height],
       ].map(([x, y]) => {
         const dx = (x - object.midpoint[0]) * scale;
         const dy = (y - object.midpoint[1]) * scale;

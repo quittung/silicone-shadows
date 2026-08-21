@@ -129,15 +129,58 @@ class ReviewAppTest(unittest.TestCase):
                     dataset_dir=root / "dataset",
                 )
             ) as client:
-                products = client.get("/api/comparison/products").json()["products"]
+                response = client.get("/api/comparison/products")
+                products = response.json()["products"]
                 self.assertEqual(len(products), 1)
                 self.assertEqual(products[0]["id"], "reference:credit-card")
                 self.assertEqual(products[0]["vn"], "Reference Objects")
                 self.assertEqual(products[0]["sizes"][0]["label"], "ID-1")
-                self.assertAlmostEqual(products[0]["sizes"][0]["length_in"], 85.6 / 25.4)
+                self.assertAlmostEqual(
+                    products[0]["sizes"][0]["length_in"], 85.6 / 25.4
+                )
                 self.assertAlmostEqual(products[0]["sizes"][0]["circumference_in"], 2)
                 self.assertIsNone(products[0]["toybox_url"])
-                self.assertEqual(client.get(products[0]["svg_url"]).status_code, 200)
+                self.assertIn("?v=", products[0]["svg_url"])
+                outline_response = client.get(products[0]["svg_url"])
+                self.assertEqual(outline_response.status_code, 200)
+                self.assertEqual(
+                    outline_response.headers["cache-control"],
+                    "private, max-age=31536000, immutable",
+                )
+                self.assertEqual(
+                    client.get(products[0]["svg_url"].split("?", 1)[0]).headers[
+                        "cache-control"
+                    ],
+                    "no-store",
+                )
+                preview_response = client.get(
+                    f"{products[0]['svg_url']}&show_length=true"
+                )
+                self.assertEqual(preview_response.headers["cache-control"], "no-store")
+                etag = response.headers["etag"]
+                self.assertEqual(
+                    client.get(
+                        "/api/comparison/products", headers={"If-None-Match": etag}
+                    ).status_code,
+                    304,
+                )
+                metadata_path = record / "metadata.json"
+                metadata = json.loads(metadata_path.read_text())
+                metadata["name"] = "Changed Card"
+                metadata_path.write_text(json.dumps(metadata))
+                outline_path = record / "outline.svg"
+                outline_path.write_text(f"{outline_path.read_text()}\n")
+                self.assertEqual(
+                    client.get("/api/comparison/products").json()["products"][0]["n"],
+                    "Credit Card",
+                )
+                self.assertEqual(client.post("/api/comparison/reload").status_code, 204)
+                refreshed = client.get("/api/comparison/products")
+                self.assertEqual(refreshed.json()["products"][0]["n"], "Changed Card")
+                self.assertNotEqual(
+                    refreshed.json()["products"][0]["svg_url"], products[0]["svg_url"]
+                )
+                self.assertNotEqual(refreshed.headers["etag"], etag)
 
     def test_catalog_images_are_downloaded_and_masked_by_prefetch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -473,6 +516,7 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertEqual(stats["summary"]["comparable"], 2)
                 self.assertNotIn("missing_products", stats)
 
+                self.assertEqual(client.post("/api/comparison/reload").status_code, 204)
                 comparison = client.get("/api/comparison/products").json()["products"]
                 self.assertEqual(len(comparison), 2)
                 self.assertEqual(
@@ -517,9 +561,12 @@ class ReviewAppTest(unittest.TestCase):
                         "/api/comparison/products"
                     ).json()["products"]
                     self.assertEqual(len(fresh_comparison), 2)
+                    self.assertIn("?v=", fresh_comparison[0]["svg_url"])
+                    outline_response = fresh_client.get(fresh_comparison[0]["svg_url"])
+                    self.assertEqual(outline_response.status_code, 200)
                     self.assertEqual(
-                        fresh_client.get(fresh_comparison[0]["svg_url"]).status_code,
-                        200,
+                        outline_response.headers["cache-control"],
+                        "private, max-age=31536000, immutable",
                     )
                     restarted = fresh_client.post("/api/items/sample/rereview")
                     self.assertEqual(restarted.status_code, 200, restarted.text)

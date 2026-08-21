@@ -1,5 +1,6 @@
 """Catalog listing, review editing, saving, statistics, and comparison routes."""
 
+import hashlib
 import json
 import secrets
 import shutil
@@ -99,6 +100,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
     @app.get("/api/community/{record_id}/outline.svg")
     def independent_outline(
         record_id: str,
+        v: str | None = None,
         show_length: bool = False,
         invert_colors: bool = False,
     ) -> Response:
@@ -106,7 +108,13 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         path = record[1] / "outline.svg" if record else None
         if not path or not path.is_file():
             raise HTTPException(status_code=404, detail="outline does not exist")
-        headers = {"Cache-Control": "no-store"}
+        headers = {
+            "Cache-Control": (
+                "private, max-age=31536000, immutable"
+                if v and not show_length
+                else "no-store"
+            )
+        }
         if show_length:
             return Response(
                 length_preview(path, invert_colors),
@@ -212,8 +220,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             "product_types": workspace.breakdown(records, "pt"),
         }
 
-    @app.get("/api/comparison/products")
-    def comparison_products() -> dict:
+    def build_comparison_snapshot() -> tuple[bytes, str]:
         def largest_circumference(*values: object) -> float | int | None:
             measurements = [
                 value
@@ -227,7 +234,8 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             if not record["comparable"]:
                 continue
             product = record["product"]
-            main_length = svg_main_length(record["directory"] / "outline.svg")
+            outline = record["directory"] / "outline.svg"
+            main_length = svg_main_length(outline)
             vendor_url = product.get("link")
             if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
                 "http",
@@ -235,7 +243,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             }:
                 vendor_url = None
             product_type = quote(str(product.get("pt") or "other").lower(), safe="")
-            vendor_term = quote(str(product.get("vn") or "").replace(" ", "_"), safe="_")
+            vendor_term = quote(
+                str(product.get("vn") or "").replace(" ", "_"), safe="_"
+            )
             search_term = quote(str(product.get("n") or "").replace(" ", "_"), safe="_")
             products.append(
                 {
@@ -251,7 +261,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
                     ),
                     "main_length": main_length.model_dump(mode="json"),
-                    "svg_url": f"/api/products/{quote(str(product['id']), safe='')}/outline.svg",
+                    "svg_url": (
+                        f"/api/products/{quote(str(product['id']), safe='')}/outline.svg"
+                        f"?v={outline.stat().st_mtime_ns}"
+                    ),
                     "sizes": [
                         {
                             "index": index,
@@ -280,7 +293,11 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             for index, size in enumerate(metadata.get("sizes", [])):
                 conversion = inches_per_unit.get(size.get("unit"))
                 length = size.get("length")
-                if not conversion or not isinstance(length, (int, float)) or length <= 0:
+                if (
+                    not conversion
+                    or not isinstance(length, (int, float))
+                    or length <= 0
+                ):
                     continue
                 circumference = largest_circumference(
                     size.get("circumference"), size.get("widest_circumference")
@@ -324,6 +341,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "main_length": svg_main_length(outline).model_dump(mode="json"),
                     "svg_url": (
                         f"/api/community/{quote(record_id, safe='')}/outline.svg"
+                        f"?v={outline.stat().st_mtime_ns}"
                     ),
                     "sizes": sizes,
                 }
@@ -331,7 +349,36 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         products.sort(
             key=lambda product: (product["vn"], product["n"], str(product["id"]))
         )
-        return {"products": products}
+        body = json.dumps(
+            {"products": products}, ensure_ascii=False, separators=(",", ":")
+        ).encode()
+        return body, f'"{hashlib.sha256(body).hexdigest()}"'
+
+    comparison_snapshot = build_comparison_snapshot()
+
+    @app.get("/api/comparison/products")
+    def comparison_products(request: Request) -> Response:
+        body, etag = comparison_snapshot
+        headers = {
+            "Cache-Control": "private, max-age=0, must-revalidate",
+            "ETag": etag,
+        }
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return Response(
+            body,
+            media_type="application/json",
+            headers=headers,
+        )
+
+    @app.post("/api/comparison/reload")
+    def reload_comparison(request: Request) -> Response:
+        nonlocal comparison_snapshot
+        user = request.state.user
+        if store and (not user or not user.reviewer):
+            raise HTTPException(status_code=403, detail="reviewer access required")
+        comparison_snapshot = build_comparison_snapshot()
+        return Response(status_code=204)
 
     @app.post("/api/items/{item_id}/claim")
     def heartbeat_claim(item_id: str, request: Request) -> dict:
@@ -419,6 +466,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
     @app.get("/api/products/{catalog_id}/outline.svg")
     def published_outline(
         catalog_id: str,
+        v: str | None = None,
         show_length: bool = False,
         invert_colors: bool = False,
     ) -> Response:
@@ -431,7 +479,13 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         path = published[1] / "outline.svg"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="product has no usable outline")
-        headers = {"Cache-Control": "no-store"}
+        headers = {
+            "Cache-Control": (
+                "private, max-age=31536000, immutable"
+                if v and not show_length
+                else "no-store"
+            )
+        }
         if show_length:
             return Response(
                 length_preview(path, invert_colors),
