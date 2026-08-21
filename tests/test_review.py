@@ -73,6 +73,72 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertEqual(ensure_catalog(descriptor), catalog_path)
                 self.assertEqual(download.call_count, 1)
 
+    def test_independent_products_are_available_for_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_dir = root / "in"
+            input_dir.mkdir()
+            catalog = root / "products.json"
+            catalog.write_text("[]")
+            record = root / "dataset/reference-objects/reference/credit-card"
+            record.mkdir(parents=True)
+            (record / "metadata.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "record_id": "reference:credit-card",
+                        "catalog_id": None,
+                        "vendor": "Reference Objects",
+                        "product_type": "Reference",
+                        "name": "Credit Card",
+                        "product_url": None,
+                        "species": None,
+                        "quality": "good",
+                        "source": "alternative",
+                        "tags": [],
+                        "features": [],
+                        "sizes": [
+                            {
+                                "label": "Standard",
+                                "short_label": "ID-1",
+                                "price": None,
+                                "length": 85.6,
+                                "circumference": None,
+                                "widest_circumference": 50.8,
+                                "widest_label": None,
+                                "unit": "mm",
+                            }
+                        ],
+                        "notes": None,
+                    }
+                )
+            )
+            (record / "outline.svg").write_text(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="630" '
+                'height="1000" viewBox="0 0 .63 1">'
+                '<path id="outline" d="M0 0h.63v1H0z"/>'
+                '<line id="main-length" x1=".315" y1="1" x2=".315" '
+                'y2="0" display="none"/></svg>'
+            )
+
+            with TestClient(
+                create_app(
+                    input_dir,
+                    root / "work",
+                    catalog,
+                    dataset_dir=root / "dataset",
+                )
+            ) as client:
+                products = client.get("/api/comparison/products").json()["products"]
+                self.assertEqual(len(products), 1)
+                self.assertEqual(products[0]["id"], "reference:credit-card")
+                self.assertEqual(products[0]["vn"], "Reference Objects")
+                self.assertEqual(products[0]["sizes"][0]["label"], "ID-1")
+                self.assertAlmostEqual(products[0]["sizes"][0]["length_in"], 85.6 / 25.4)
+                self.assertAlmostEqual(products[0]["sizes"][0]["circumference_in"], 2)
+                self.assertIsNone(products[0]["toybox_url"])
+                self.assertEqual(client.get(products[0]["svg_url"]).status_code, 200)
+
     def test_catalog_images_are_downloaded_and_masked_by_prefetch(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -247,9 +313,17 @@ class ReviewAppTest(unittest.TestCase):
                             "vn": "Vendor A",
                             "pt": "Type A",
                             "pic": "images/sample.jpg",
+                            "link": "https://vendor.example/sample",
                             "sz": {
                                 "s": [
-                                    {"sl": "Small", "ShortLabel": "S", "len": 5},
+                                    {
+                                        "sl": "Small",
+                                        "ShortLabel": "S",
+                                        "len": 5,
+                                        "circ": 4.5,
+                                        "wcirc": 6,
+                                        "p": 75,
+                                    },
                                     {"sl": "Large", "ShortLabel": "L", "len": 8},
                                 ]
                             },
@@ -403,6 +477,16 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertEqual(len(comparison), 2)
                 self.assertEqual(
                     [size["label"] for size in comparison[0]["sizes"]], ["S", "L"]
+                )
+                self.assertEqual(
+                    comparison[0]["vendor_url"], "https://vendor.example/sample"
+                )
+                self.assertEqual(comparison[0]["sizes"][0]["circumference_in"], 6)
+                self.assertEqual(comparison[0]["sizes"][0]["price_usd"], 75)
+                self.assertEqual(
+                    comparison[0]["toybox_url"],
+                    "https://fantasytoybox.net/products/type%20a/"
+                    "FilterOptions=Vendor[Vendor_A]&SearchTerm[Sample]!",
                 )
                 comparison_line = comparison[0]["main_length"]
                 self.assertAlmostEqual(

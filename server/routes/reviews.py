@@ -5,7 +5,7 @@ import secrets
 import shutil
 import zipfile
 from io import BytesIO
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -214,12 +214,29 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.get("/api/comparison/products")
     def comparison_products() -> dict:
+        def largest_circumference(*values: object) -> float | int | None:
+            measurements = [
+                value
+                for value in values
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            ]
+            return max(measurements, default=None)
+
         products = []
         for record in workspace.catalog_records():
             if not record["comparable"]:
                 continue
             product = record["product"]
             main_length = svg_main_length(record["directory"] / "outline.svg")
+            vendor_url = product.get("link")
+            if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
+                "http",
+                "https",
+            }:
+                vendor_url = None
+            product_type = quote(str(product.get("pt") or "other").lower(), safe="")
+            vendor_term = quote(str(product.get("vn") or "").replace(" ", "_"), safe="_")
+            search_term = quote(str(product.get("n") or "").replace(" ", "_"), safe="_")
             products.append(
                 {
                     "id": product["id"],
@@ -228,6 +245,11 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "vn": product.get("vn", ""),
                     "pt": product.get("pt", ""),
                     "rating": record["rating"],
+                    "vendor_url": vendor_url,
+                    "toybox_url": (
+                        f"https://fantasytoybox.net/products/{product_type}/"
+                        f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
+                    ),
                     "main_length": main_length.model_dump(mode="json"),
                     "svg_url": f"/api/products/{quote(str(product['id']), safe='')}/outline.svg",
                     "sizes": [
@@ -240,12 +262,75 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                             or size.get("ShortLabel")
                             or str(index + 1),
                             "length_in": size["len"],
+                            "circumference_in": largest_circumference(
+                                size.get("circ"), size.get("wcirc")
+                            ),
+                            "price_usd": size.get("p"),
                         }
                         for index, size in enumerate(record["sizes"])
                     ],
                 }
             )
-        products.sort(key=lambda product: (product["vn"], product["n"], product["id"]))
+        inches_per_unit = {"in": 1, "cm": 1 / 2.54, "mm": 1 / 25.4}
+        for record_id, (metadata, directory) in workspace.independent_records().items():
+            outline = directory / "outline.svg"
+            if metadata.get("quality") == "unusable" or not outline.is_file():
+                continue
+            sizes = []
+            for index, size in enumerate(metadata.get("sizes", [])):
+                conversion = inches_per_unit.get(size.get("unit"))
+                length = size.get("length")
+                if not conversion or not isinstance(length, (int, float)) or length <= 0:
+                    continue
+                circumference = largest_circumference(
+                    size.get("circumference"), size.get("widest_circumference")
+                )
+                sizes.append(
+                    {
+                        "index": index,
+                        "label": size.get("short_label")
+                        or size.get("label")
+                        or str(index + 1),
+                        "name": size.get("label")
+                        or size.get("short_label")
+                        or str(index + 1),
+                        "length_in": length * conversion,
+                        "circumference_in": (
+                            circumference * conversion
+                            if isinstance(circumference, (int, float))
+                            else None
+                        ),
+                        "price_usd": size.get("price"),
+                    }
+                )
+            if not sizes:
+                continue
+            vendor_url = metadata.get("product_url")
+            if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
+                "http",
+                "https",
+            }:
+                vendor_url = None
+            products.append(
+                {
+                    "id": record_id,
+                    "item_id": record_id,
+                    "n": metadata.get("name", ""),
+                    "vn": metadata.get("vendor", ""),
+                    "pt": metadata.get("product_type", ""),
+                    "rating": metadata.get("quality"),
+                    "vendor_url": vendor_url,
+                    "toybox_url": None,
+                    "main_length": svg_main_length(outline).model_dump(mode="json"),
+                    "svg_url": (
+                        f"/api/community/{quote(record_id, safe='')}/outline.svg"
+                    ),
+                    "sizes": sizes,
+                }
+            )
+        products.sort(
+            key=lambda product: (product["vn"], product["n"], str(product["id"]))
+        )
         return {"products": products}
 
     @app.post("/api/items/{item_id}/claim")

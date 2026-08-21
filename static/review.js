@@ -292,7 +292,7 @@ function setSidebarMode(mode) {
 function setItemTitle(item) {
   const names = item.products?.map(product => product.n).join(' / ');
   const vendors = [...new Set(item.products?.map(product => product.vn) || [])].join(' / ');
-  $('#filename').textContent = names ? `${names} — ${vendors}` : item.filename;
+  $('#filename').textContent = names ? `${names} · ${vendors}` : item.filename;
   const product = item.independent ? null : item.products?.find(product => product.link);
   $('#open-product').hidden = !product;
   $('#open-product').dataset.url = product?.link || '';

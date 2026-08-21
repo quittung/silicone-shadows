@@ -3,46 +3,88 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Silicone Shadows — Compare</title>
+  <title>Silicone Shadows · Compare</title>
   <style>
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --danger:#fb7185; }
     * { box-sizing:border-box; }
     body { margin:0; height:100dvh; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; background:var(--bg); color:var(--text); }
-    main { display:grid; grid-template-columns:minmax(0,1fr) 330px; min-height:0; }
+    main { display:grid; grid-template-columns:minmax(0,1fr) clamp(360px,25vw,520px); min-height:0; }
     aside { grid-column:2; grid-row:1; overflow-y:auto; padding:.8rem; background:var(--panel); border-left:1px solid var(--border); }
     fieldset { margin:0 0 .8rem; padding:.65rem; border:1px solid var(--border); border-radius:7px; }
     legend { padding:0 .35rem; color:var(--muted); }
     label { display:block; margin:.45rem 0 .2rem; color:var(--muted); font-size:.86rem; }
     input, select, button { width:100%; color:var(--text); background:#252c34; border:1px solid var(--border); border-radius:6px; padding:.5rem .6rem; font:inherit; }
     button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.45; }
     button:hover, button.active { border-color:var(--accent); background:#263943; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
     .filters { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
-    .filters #search { grid-column:1/-1; }
-    .filters #size-filter { grid-column:1/-1; }
-    .section-label { margin:0 0 .45rem; color:var(--muted); font-size:.86rem; }
-    .divider { display:flex; align-items:center; gap:.55rem; margin:.9rem 0 .2rem; color:var(--muted); font-size:.8rem; }
+    .section-label { margin:0 0 .45rem; color:var(--muted); font-size:.86rem; text-align:center; }
+    .divider { display:flex; align-items:center; gap:.55rem; margin:.75rem 0; color:var(--muted); font-size:.8rem; }
     .divider::before, .divider::after { content:""; height:1px; flex:1; background:var(--border); }
     .segmented { display:grid; grid-template-columns:1fr 1fr; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
     .segmented button { border:0; border-radius:0; background:#20262d; }
     .segmented button + button { border-left:1px solid var(--border); }
     .segmented button.active { background:#164b56; }
+    .units-control { margin-top:.65rem; }
+    .scale-control { display:grid; grid-template-columns:2.6rem minmax(0,1fr) 2.6rem; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
+    .scale-control button { display:flex; align-items:center; justify-content:center; gap:.45rem; border:0; border-radius:0; background:#20262d; }
+    .scale-control button + button { border-left:1px solid var(--border); }
+    .scale-control button:disabled { cursor:not-allowed; opacity:.45; }
+    #scale-lock.active { background:#164b56; }
+    .scale-lock-icon { display:block; flex:none; width:.9rem; height:.9rem; fill:currentColor; opacity:0; transition:opacity .12s; }
+    .lock-closed { display:none; }
+    #scale-lock:hover .scale-lock-icon, #scale-lock:focus-visible .scale-lock-icon, #scale-lock.active .scale-lock-icon { opacity:1; }
+    #scale-lock.active .lock-open { display:none; }
+    #scale-lock.active .lock-closed { display:block; }
     #add, #add-filter { margin-top:.65rem; background:#164b56; border-color:#168da0; font-weight:650; }
+    #size { margin-top:.45rem; }
     #canvas-wrap { grid-column:1; grid-row:1; position:relative; min-width:0; min-height:0; background:#161a1f; }
     canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
     #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); pointer-events:none; }
     #empty.hidden { display:none; }
     #layers { display:grid; gap:.4rem; }
-    .layer { display:grid; grid-template-columns:auto 1fr auto; gap:.5rem; align-items:center; padding:.45rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; }
+    .layer { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.5rem; align-items:start; padding:.55rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; }
     .layer.selected { border-color:var(--accent); }
-    .swatch { width:16px; height:16px; border-radius:3px; }
-    .layer-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .layer-name small { display:block; color:var(--muted); }
+    .swatch { width:16px; height:16px; margin-top:.15rem; border-radius:3px; }
+    .swatch.approximate { background-image:repeating-linear-gradient(135deg,transparent 0 3px,rgba(255,255,255,.42) 3px 5px); }
+    .layer-body, .layer-name { min-width:0; }
+    .layer-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .quality-note { display:inline-block; margin-top:.25rem; padding:.05rem .3rem; border:1px dashed var(--muted); border-radius:3px; color:var(--muted); font-size:.72rem; }
+    .layer-facts, .layer-sizes, .layer-links { display:flex; flex-wrap:wrap; gap:.25rem .6rem; margin-top:.25rem; color:var(--muted); font-size:.78rem; }
+    .layer-fact { display:inline-flex; align-items:baseline; gap:.25rem; white-space:nowrap; }
+    .fact-icon { display:inline-block; flex:none; box-sizing:border-box; }
+    .length-icon { font-size:var(--length-icon-size,.8em); line-height:1; transform:translateY(var(--length-icon-shift,0)); }
+    .length-icon::before { content:"↕"; }
+    .circumference-icon { width:var(--fact-digit-height,.7em); height:var(--fact-digit-height,.7em); border:1px solid; border-radius:50%; transform:translateY(var(--circumference-icon-shift,0)); }
+    .layer-sizes { align-items:baseline; gap:.25em; }
+    .layer-sizes button { width:auto; padding:0; border:0; background:none; color:var(--muted); font:inherit; }
+    .layer-sizes button:hover { color:var(--accent); }
+    .layer-links a { color:var(--muted); text-decoration:none; }
+    .layer-links a:hover { color:var(--accent); }
     .remove { width:auto; padding:.2rem .45rem; color:var(--danger); }
-    .hint, #status { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
+    #status { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
     #status.error { color:var(--danger); }
+    #mobile-panel-toggle { display:none; }
+    @media (max-width:700px) {
+      main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,42dvh); }
+      main.panel-collapsed { grid-template-rows:minmax(0,1fr) auto; }
+      aside { grid-column:1; grid-row:2; padding:0 .65rem .65rem; border-top:0; border-left:0; }
+      #canvas-wrap { grid-column:1; grid-row:1; }
+      #mobile-panel-toggle { display:flex; position:sticky; top:0; z-index:2; align-items:center; justify-content:space-between; width:calc(100% + 1.3rem); min-height:48px; margin:0 -.65rem .65rem; padding:0 .85rem; border:0; border-bottom:1px solid var(--border); border-radius:0; background:#20262d; color:var(--text); font-weight:650; }
+      #mobile-panel-toggle svg { width:1.2rem; height:1.2rem; fill:none; stroke:currentColor; stroke-width:1.8; transition:transform .15s; }
+      main.panel-collapsed aside { padding:0; overflow:hidden; }
+      main.panel-collapsed #mobile-panel-toggle { width:100%; margin:0; }
+      main.panel-collapsed #mobile-panel-toggle svg { transform:rotate(180deg); }
+      main.panel-collapsed aside > :not(#mobile-panel-toggle) { display:none; }
+      input, select, button { min-height:44px; }
+      .remove { min-width:44px; height:44px; }
+      .layer-sizes button { min-width:0; min-height:0; padding:0; }
+      .scale-lock-icon { opacity:1; }
+    }
   </style>
-  <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
+  <link rel="stylesheet" href="/static/select.css?v=20260821-1">
+  <link rel="stylesheet" href="/static/nav.css?v=20260821-2">
 </head>
 <body>
   <header class="app-header">
@@ -50,51 +92,60 @@
     <div data-app-nav="compare"></div>
   </header>
   <main>
-    <aside>
+    <aside id="controls">
+      <button id="mobile-panel-toggle" type="button" aria-expanded="true">
+        <span>Controls</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
       <fieldset>
-        <legend>Add product sizes</legend>
-        <div class="section-label">Filter available sizes</div>
+        <legend>Display</legend>
+        <div class="scale-control" role="group" aria-label="Canvas scale">
+          <button id="scale-down" aria-label="Decrease scale">−</button>
+          <button id="scale-lock" aria-label="Lock scale" aria-pressed="false">
+            <span id="scale-value">48 px/in</span>
+            <svg class="scale-lock-icon" viewBox="0 0 20 20" aria-hidden="true">
+              <path class="lock-open" fill-rule="evenodd" d="M14.5 1A4.5 4.5 0 0 0 10 5.5V9H3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5V5.5a3 3 0 1 1 6 0v2.75a.75.75 0 0 0 1.5 0V5.5A4.5 4.5 0 0 0 14.5 1Z" clip-rule="evenodd"/>
+              <path class="lock-closed" fill-rule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clip-rule="evenodd"/>
+            </svg>
+          </button>
+          <button id="scale-up" aria-label="Increase scale">+</button>
+        </div>
+        <div class="segmented units-control" role="group" aria-label="Measurement units">
+          <button id="imperial" aria-pressed="false">Imperial</button>
+          <button id="metric" class="active" aria-pressed="true">Metric</button>
+        </div>
+        <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="clear">Clear canvas</button></div>
+      </fieldset>
+
+      <fieldset id="add-products">
+        <legend>Add products</legend>
+        <div class="section-label">Filter available products</div>
         <div class="filters">
-          <input id="search" type="search" placeholder="Product name contains…">
+          <input id="search" type="search" placeholder="Product…">
           <input id="vendor" type="search" placeholder="Vendor…">
           <select id="type" aria-label="Filter by product type">
-            <option value="">All types</option>
+            <option value="">Any type</option>
           </select>
           <select id="size-filter" aria-label="Filter by size">
             <option value="">Any size</option>
           </select>
         </div>
-        <div class="hint">“Any size” includes every available size of matching products.</div>
         <button id="add-filter">Add all matches</button>
         <div class="divider">Or add one</div>
-        <label for="product">Product</label>
-        <select id="product"></select>
-        <label for="size">Size</label>
-        <select id="size"></select>
-        <button id="add">Add selected size</button>
+        <select id="product" aria-label="Product"></select>
+        <select id="size" aria-label="Size"></select>
+        <button id="add">Add selected product</button>
       </fieldset>
 
       <fieldset>
-        <legend>Display</legend>
-        <div class="segmented" role="group" aria-label="Measurement units">
-          <button id="imperial" aria-pressed="false">Imperial</button>
-          <button id="metric" class="active" aria-pressed="true">Metric</button>
-        </div>
-        <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="reset-view">Reset view</button></div>
-        <div class="row" style="margin-top:.65rem"><button id="remove-selected">Remove selected</button><button id="clear">Clear canvas</button></div>
-        <div class="hint">Wheel zoom · drag empty space or middle-drag to pan. The scale bar is shown in the canvas.</div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Layers</legend>
+        <legend>Products</legend>
         <div id="layers"></div>
-        <div class="hint">Click an object or layer to bring it to the front, then drag it freely.</div>
       </fieldset>
       <div id="status"></div>
     </aside>
     <section id="canvas-wrap">
       <canvas id="canvas"></canvas>
-      <div id="empty">Add one or more reviewed product sizes to compare them.</div>
+      <div id="empty">Add one or more products to compare them.</div>
     </section>
   </main>
   <script src="/static/nav.js?v=20260814-2"></script>
@@ -110,12 +161,19 @@
     let selected = null;
     let drag = null;
     let pan = null;
+    let pinch = null;
+    const touches = new Map();
     let metric = true;
+    let scaleLocked = false;
     let nextId = 1;
     let bulkAdding = false;
     const view = { zoom: 48, x: 0, y: 0 };
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 400;
+    const WORKSPACE_KEY = 'silicone-shadows-compare-workspace-v1';
+    const DEFAULT_PRODUCT_ID = 'reference:credit-card';
+    let workspaceReady = false;
+    let saveTimer = null;
 
     function setStatus(message, error=false) {
       $('#status').textContent = message;
@@ -124,6 +182,85 @@
 
     function formatLength(inches) {
       return metric ? `${(inches * 2.54).toFixed(1)} cm` : `${inches} in`;
+    }
+
+    function formatPrice(dollars) {
+      return new Intl.NumberFormat(undefined, {
+        style: 'currency', currency: 'USD', minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+      }).format(dollars);
+    }
+
+    function nextColor() {
+      const counts = new Map(palette.map(color => [color, 0]));
+      for (const object of objects) counts.set(object.color, (counts.get(object.color) || 0) + 1);
+      return palette.reduce((best, color) => counts.get(color) < counts.get(best) ? color : best);
+    }
+
+    function saveWorkspace() {
+      if (!workspaceReady) return;
+      try {
+        localStorage.setItem(WORKSPACE_KEY, JSON.stringify({
+          version: 1,
+          metric,
+          scaleLocked,
+          view: { ...view },
+          objects: objects.map(object => ({
+            productId: object.product.id,
+            sizeIndex: object.size.index,
+            color: object.color,
+            rotation: object.rotation,
+            x: object.x,
+            y: object.y,
+            selected: object === selected,
+          })),
+        }));
+      } catch (_) {}
+    }
+
+    function queueWorkspaceSave() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveWorkspace, 100);
+    }
+
+    async function restoreWorkspace() {
+      let saved;
+      const stored = localStorage.getItem(WORKSPACE_KEY);
+      if (stored === null) return false;
+      try { saved = JSON.parse(stored); }
+      catch (_) { return false; }
+      if (saved?.version !== 1 || !Array.isArray(saved.objects)) return false;
+      if (typeof saved.metric === 'boolean') metric = saved.metric;
+      if (typeof saved.scaleLocked === 'boolean') scaleLocked = saved.scaleLocked;
+      if (saved.view && [saved.view.zoom, saved.view.x, saved.view.y].every(Number.isFinite)) {
+        view.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, saved.view.zoom));
+        view.x = saved.view.x;
+        view.y = saved.view.y;
+      }
+      const loadedByUrl = new Map();
+      let restoredSelected = null;
+      for (const item of saved.objects) {
+        const product = products.find(product => String(product.id) === String(item.productId));
+        const size = product?.sizes.find(size => size.index === Number(item.sizeIndex));
+        if (!product || !size) continue;
+        if (!loadedByUrl.has(product.svg_url)) {
+          loadedByUrl.set(product.svg_url, loadImage(product.svg_url));
+        }
+        try {
+          const loaded = await loadedByUrl.get(product.svg_url);
+          const color = palette.includes(item.color) ? item.color : nextColor();
+          const object = addObject(product, size, loaded, color);
+          if ([item.x, item.y].every(Number.isFinite)) {
+            object.x = item.x;
+            object.y = item.y;
+          }
+          if (Number.isFinite(item.rotation)) object.rotation = item.rotation;
+          if (item.selected) restoredSelected = object;
+        } catch (_) {}
+      }
+      selected = restoredSelected;
+      setUnits(metric);
+      return true;
     }
 
     function matchingSizes(product) {
@@ -156,7 +293,7 @@
       return { image, rasterScale };
     }
 
-    function tintImage(image, color) {
+    function tintImage(image, color, approximate=false) {
       const tinted = document.createElement('canvas');
       tinted.width = image.naturalWidth;
       tinted.height = image.naturalHeight;
@@ -165,10 +302,43 @@
       target.globalCompositeOperation = 'source-in';
       target.fillStyle = color;
       target.fillRect(0, 0, tinted.width, tinted.height);
+      if (approximate) {
+        target.globalCompositeOperation = 'source-atop';
+        target.strokeStyle = 'rgba(255,255,255,.28)';
+        target.lineWidth = 6;
+        for (let offset = -tinted.height; offset < tinted.width; offset += 24) {
+          target.beginPath();
+          target.moveTo(offset, 0);
+          target.lineTo(offset + tinted.height, tinted.height);
+          target.stroke();
+        }
+      }
       return tinted;
     }
 
+    function replaceFilterOptions(select, anyLabel, values) {
+      const previous = select.value;
+      select.replaceChildren(new Option(anyLabel, ''));
+      for (const value of values) select.appendChild(new Option(value, value));
+      if (values.includes(previous)) select.value = previous;
+    }
+
+    function refreshFilterOptions() {
+      const name = $('#search').value.trim().toLowerCase();
+      const vendor = $('#vendor').value.trim().toLowerCase();
+      const candidates = products.filter(product =>
+        product.n.toLowerCase().includes(name) && product.vn.toLowerCase().includes(vendor));
+      const types = [...new Set(candidates.map(product => product.pt).filter(Boolean))].sort();
+      replaceFilterOptions($('#type'), 'Any type', types);
+      const type = $('#type').value;
+      const sizes = [...new Set(candidates.filter(product => !type || product.pt === type)
+        .flatMap(product => product.sizes.map(size => size.label)).filter(Boolean))]
+        .sort((left, right) => left.localeCompare(right, undefined, {numeric:true, sensitivity:'base'}));
+      replaceFilterOptions($('#size-filter'), 'Any size', sizes);
+    }
+
     function filterProducts() {
+      refreshFilterOptions();
       const name = $('#search').value.trim().toLowerCase();
       const vendor = $('#vendor').value.trim().toLowerCase();
       const type = $('#type').value;
@@ -183,10 +353,14 @@
       for (const product of shownProducts) {
         const option = document.createElement('option');
         option.value = product.id;
-        option.textContent = `${product.vn} — ${product.n}`;
+        option.textContent = `${product.vn} · ${product.n}`;
         select.appendChild(option);
       }
       if ([...select.options].some(option => option.value === previous)) select.value = previous;
+      else if (!name && !vendor && !type && !$('#size-filter').value &&
+               [...select.options].some(option => option.value === DEFAULT_PRODUCT_ID)) {
+        select.value = DEFAULT_PRODUCT_ID;
+      }
       updateSizes();
       const sizeCount = shownProducts.reduce((total, product) => total + matchingSizes(product).length, 0);
       $('#add-filter').textContent = `Add all ${sizeCount} match${sizeCount === 1 ? '' : 'es'}`;
@@ -200,17 +374,22 @@
     function updateSizes() {
       const product = selectedProduct();
       const select = $('#size');
+      const previousLabel = select.selectedOptions[0]?.dataset.label;
       select.replaceChildren();
       if (!product) return;
       matchingSizes(product).forEach(size => {
         const option = document.createElement('option');
         option.value = size.index;
-        option.textContent = `${size.label} — ${size.name} — ${formatLength(size.length_in)}`;
+        option.dataset.label = size.label;
+        option.textContent = `${size.label} · ${formatLength(size.length_in)}`;
         select.appendChild(option);
       });
+      const previousSize = [...select.options].find(option => option.dataset.label === previousLabel);
+      if (previousSize) select.value = previousSize.value;
     }
 
-    function addObject(product, size, loaded, color, image=tintImage(loaded.image, color)) {
+    function addObject(product, size, loaded, color,
+                       image=tintImage(loaded.image, color, product.rating === 'bad_perspective')) {
       const start = product.main_length.start;
       const end = product.main_length.end;
       const [x, y] = screenToWorld(
@@ -231,97 +410,125 @@
       return object;
     }
 
-    function spreadObjects(items) {
+    function objectBox(object) {
+      const points = objectBounds(object);
+      const xs = points.map(point => point[0]);
+      const ys = points.map(point => point[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      return { minX, maxX, minY, maxY };
+    }
+
+    function placeObjects(items) {
       if (!items.length) return;
-      const boxes = items.map(object => {
-        const points = objectBounds(object);
-        const xs = points.map(point => point[0]);
-        const ys = points.map(point => point[1]);
-        const minX = Math.min(...xs), maxX = Math.max(...xs);
-        const minY = Math.min(...ys), maxY = Math.max(...ys);
-        return {
-          object,
-          width: maxX - minX,
-          height: maxY - minY,
-          centerX: (minX + maxX) / 2,
-          centerY: (minY + maxY) / 2,
-        };
-      });
-      const maxWidth = Math.max(...boxes.map(box => box.width));
-      const maxHeight = Math.max(...boxes.map(box => box.height));
-      const cellWidth = maxWidth;
-      const cellHeight = maxHeight;
-      let columns = 1;
-      let bestScore = Infinity;
-      for (let candidate = 1; candidate <= items.length; candidate++) {
-        const candidateRows = Math.ceil(items.length / candidate);
-        const aspect = candidate * cellWidth / (candidateRows * cellHeight);
-        const emptyCells = candidate * candidateRows - items.length;
-        const score = Math.abs(Math.log(aspect)) + emptyCells / items.length * .05;
-        if (score < bestScore) {
-          columns = candidate;
-          bestScore = score;
+      const itemSet = new Set(items);
+      const occupied = objects.filter(object => !itemSet.has(object)).map(objectBox);
+      const [centerX, centerY] = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
+      const gap = .4;
+      for (const object of items) {
+        const box = objectBox(object);
+        const width = box.maxX - box.minX;
+        const height = box.maxY - box.minY;
+        const boxCenterX = (box.minX + box.maxX) / 2;
+        const boxCenterY = (box.minY + box.maxY) / 2;
+        const candidates = [];
+        for (let x = -20; x <= 20; x++) {
+          for (let y = -20; y <= 20; y++) {
+            candidates.push({
+              x: centerX + x * (width + gap),
+              y: centerY + y * (height + gap),
+              distance: (x * (width + gap)) ** 2 + (y * (height + gap)) ** 2,
+            });
+          }
         }
+        candidates.sort((left, right) => left.distance - right.distance);
+        let placed = null;
+        for (const candidate of candidates) {
+          const dx = candidate.x - boxCenterX;
+          const dy = candidate.y - boxCenterY;
+          const moved = {
+            minX: box.minX + dx, maxX: box.maxX + dx,
+            minY: box.minY + dy, maxY: box.maxY + dy,
+          };
+          const overlaps = occupied.some(other =>
+            moved.minX < other.maxX + gap && moved.maxX > other.minX - gap &&
+            moved.minY < other.maxY + gap && moved.maxY > other.minY - gap);
+          if (!overlaps) {
+            object.x += dx;
+            object.y += dy;
+            placed = moved;
+            break;
+          }
+        }
+        if (!placed) {
+          const right = occupied.length ? Math.max(...occupied.map(box => box.maxX)) : centerX;
+          const dx = right + gap + width / 2 - boxCenterX;
+          const dy = centerY - boxCenterY;
+          object.x += dx;
+          object.y += dy;
+          placed = {
+            minX: box.minX + dx, maxX: box.maxX + dx,
+            minY: box.minY + dy, maxY: box.maxY + dy,
+          };
+        }
+        occupied.push(placed);
       }
-      const rows = Math.ceil(items.length / columns);
-      const [centerX, centerY] = screenToWorld(
-        wrap.clientWidth / 2,
-        wrap.clientHeight / 2,
-      );
-      boxes.forEach((box, index) => {
-        const row = Math.floor(index / columns);
-        const column = index % columns;
-        const rowSize = Math.min(columns, items.length - row * columns);
-        const targetX = centerX + (column - (rowSize - 1) / 2) * cellWidth;
-        const targetY = centerY + (row - (rows - 1) / 2) * cellHeight;
-        box.object.x += targetX - box.centerX;
-        box.object.y += targetY - box.centerY;
+      renderLayers();
+      const [minX, minY] = screenToWorld(0, 0);
+      const [maxX, maxY] = screenToWorld(wrap.clientWidth, wrap.clientHeight);
+      const outsideView = items.some(object => {
+        const box = objectBox(object);
+        return box.minX < minX || box.maxX > maxX || box.minY < minY || box.maxY > maxY;
       });
+      if (outsideView) fitAll();
+      else { render(); queueWorkspaceSave(); }
+    }
+
+    async function addProductSize(product, size) {
+      const existing = objects.find(object =>
+        String(object.product.id) === String(product.id) && object.size.index === size.index);
+      if (existing) {
+        selectObject(existing);
+        setStatus('');
+        return;
+      }
+      try {
+        setStatus('Loading outline…');
+        const loaded = await loadImage(product.svg_url);
+        const color = nextColor();
+        const object = addObject(product, size, loaded, color);
+        placeObjects([object]);
+        setStatus('');
+      } catch (error) { setStatus(error.message, true); }
     }
 
     async function addProduct() {
       const product = selectedProduct();
       const size = product?.sizes.find(item => item.index === Number($('#size').value));
-      if (!product || !size) return;
-      try {
-        setStatus('Loading outline…');
-        const loaded = await loadImage(product.svg_url);
-        addObject(product, size, loaded, palette[objects.length % palette.length]);
-        setStatus(''); renderLayers(); render();
-      } catch (error) { setStatus(error.message, true); }
+      if (product && size) await addProductSize(product, size);
     }
 
     async function addFiltered() {
-      const filteredIds = new Set(shownProducts.map(product => String(product.id)));
-      const arrangeFiltered = () => {
-        spreadObjects(objects.filter(object =>
-          filteredIds.has(String(object.product.id)) &&
-          matchingSizes(object.product).some(size => size.index === object.size.index)));
-        renderLayers();
-        fitAll();
-      };
       const variants = shownProducts.map(product => ({
         product,
         sizes: matchingSizes(product).filter(size => !objects.some(object =>
           String(object.product.id) === String(product.id) && object.size.index === size.index)),
       })).filter(entry => entry.sizes.length);
       if (!variants.length) {
-        arrangeFiltered();
-        return setStatus('All filtered sizes arranged');
+        return setStatus('All matches are already on the canvas');
       }
       bulkAdding = true;
       $('#add-filter').disabled = true;
       let added = 0;
       let failures = 0;
+      const addedObjects = [];
       for (let index = 0; index < variants.length; index++) {
         const { product, sizes } = variants[index];
         setStatus(`Loading ${index + 1} of ${variants.length} filtered products…`);
         try {
           const loaded = await loadImage(product.svg_url);
-          const color = palette[objects.length % palette.length];
-          const image = tintImage(loaded.image, color);
           for (const size of sizes) {
-            addObject(product, size, loaded, color, image);
+            addedObjects.push(addObject(product, size, loaded, nextColor()));
             added++;
           }
         } catch (_) { failures++; }
@@ -329,10 +536,10 @@
       bulkAdding = false;
       filterProducts();
       setStatus(
-        `${added} size${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
+        `${added} product${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
         failures > 0,
       );
-      arrangeFiltered();
+      placeObjects(addedObjects);
     }
 
     function objectScale(object) {
@@ -346,23 +553,19 @@
     function drawGrid(width, height) {
       ctx.save();
       ctx.strokeStyle = '#2a3139';
-      const unitsPerInch = metric ? 2.54 : 1;
-      let stepUnits = 1;
-      while (stepUnits / unitsPerInch * view.zoom < 8) stepUnits *= 2;
-      const spacing = stepUnits / unitsPerInch;
-      const labelEvery = metric && stepUnits === 1 ? 5 : 1;
+      const { minorSpacing, subdivisions } = scaleLayout();
       const minX = -view.x / view.zoom;
       const maxX = (width - view.x) / view.zoom;
       const minY = -view.y / view.zoom;
       const maxY = (height - view.y) / view.zoom;
-      for (let index = Math.floor(minX / spacing); index <= Math.ceil(maxX / spacing); index++) {
-        const x = view.x + index * spacing * view.zoom;
-        ctx.globalAlpha = index % labelEvery === 0 ? .8 : .35;
+      for (let index = Math.floor(minX / minorSpacing); index <= Math.ceil(maxX / minorSpacing); index++) {
+        const x = view.x + index * minorSpacing * view.zoom;
+        ctx.globalAlpha = index % subdivisions === 0 ? .8 : .35;
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
-      for (let index = Math.floor(minY / spacing); index <= Math.ceil(maxY / spacing); index++) {
-        const y = view.y + index * spacing * view.zoom;
-        ctx.globalAlpha = index % labelEvery === 0 ? .8 : .35;
+      for (let index = Math.floor(minY / minorSpacing); index <= Math.ceil(maxY / minorSpacing); index++) {
+        const y = view.y + index * minorSpacing * view.zoom;
+        ctx.globalAlpha = index % subdivisions === 0 ? .8 : .35;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
       ctx.restore();
@@ -373,10 +576,22 @@
       return [5, 2, 1].map(factor => factor * power).find(value => value <= target) || power;
     }
 
-    function drawScaleBar(width, height) {
+    function scaleLayout() {
       const unitsPerInch = metric ? 2.54 : 1;
-      const length = niceScaleLength(120 * unitsPerInch / view.zoom);
-      const pixels = length / unitsPerInch * view.zoom;
+      const majorUnits = niceScaleLength(120 * unitsPerInch / view.zoom);
+      const power = 10 ** Math.floor(Math.log10(majorUnits));
+      const subdivisions = majorUnits / power === 2 ? 4 : 5;
+      return {
+        unitsPerInch,
+        majorUnits,
+        minorSpacing: majorUnits / unitsPerInch / subdivisions,
+        subdivisions,
+      };
+    }
+
+    function drawScaleBar(width, height) {
+      const { unitsPerInch, majorUnits } = scaleLayout();
+      const pixels = majorUnits / unitsPerInch * view.zoom;
       const x = width - pixels - 24;
       const y = height - 24;
       ctx.save();
@@ -392,7 +607,7 @@
       ctx.stroke();
       ctx.font = '12px system-ui';
       ctx.textAlign = 'center';
-      ctx.fillText(`${Number(length.toPrecision(3))} ${metric ? 'cm' : 'in'}`, x + pixels / 2, y - 9);
+      ctx.fillText(`${Number(majorUnits.toPrecision(3))} ${metric ? 'cm' : 'in'}`, x + pixels / 2, y - 9);
       ctx.restore();
     }
 
@@ -418,20 +633,19 @@
         ctx.rotate(object.rotation);
         ctx.scale(scale, scale);
         ctx.translate(-object.midpoint[0], -object.midpoint[1]);
-        ctx.globalAlpha = .68;
-        ctx.drawImage(object.image, 0, 0);
         if (object === selected) {
-          ctx.globalAlpha = 1;
-          ctx.strokeStyle = object.color;
-          ctx.lineWidth = 2 / scale / view.zoom;
-          ctx.setLineDash([6 / scale / view.zoom, 4 / scale / view.zoom]);
-          ctx.strokeRect(0, 0, object.image.width, object.image.height);
+          ctx.globalAlpha = .95;
+          ctx.filter = 'drop-shadow(1px 0 #fff) drop-shadow(-1px 0 #fff) drop-shadow(0 1px #fff) drop-shadow(0 -1px #fff)';
+        } else {
+          ctx.globalAlpha = .68;
         }
+        ctx.drawImage(object.image, 0, 0);
         ctx.restore();
       }
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       drawScaleBar(width, height);
       $('#empty').classList.toggle('hidden', objects.length > 0);
+      updateScaleControl();
     }
 
     function screenToWorld(x, y) {
@@ -471,6 +685,36 @@
       $('#metric').classList.toggle('active', metric);
       $('#metric').setAttribute('aria-pressed', String(metric));
       updateUnits();
+      queueWorkspaceSave();
+    }
+
+    function updateScaleControl() {
+      $('#scale-value').textContent = `${Math.round(view.zoom)} px/in`;
+      $('#scale-lock').classList.toggle('active', scaleLocked);
+      $('#scale-lock').setAttribute('aria-pressed', String(scaleLocked));
+      $('#scale-lock').setAttribute('aria-label', scaleLocked ? 'Unlock scale' : 'Lock scale');
+      $('#scale-lock').title = scaleLocked ? 'Unlock scale' : 'Lock scale';
+      $('#scale-down').disabled = scaleLocked || view.zoom <= MIN_ZOOM;
+      $('#scale-up').disabled = scaleLocked || view.zoom >= MAX_ZOOM;
+      $('#fit-all').disabled = scaleLocked;
+    }
+
+    function setZoom(zoom, anchorX=wrap.clientWidth / 2, anchorY=wrap.clientHeight / 2) {
+      const [worldX, worldY] = screenToWorld(anchorX, anchorY);
+      view.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+      view.x = anchorX - worldX * view.zoom;
+      view.y = anchorY - worldY * view.zoom;
+    }
+
+    function adjustScale(amount) {
+      if (scaleLocked) return;
+      setZoom(Math.round(view.zoom) + amount);
+      render(); queueWorkspaceSave();
+    }
+
+    function toggleScaleLock() {
+      scaleLocked = !scaleLocked;
+      updateScaleControl(); queueWorkspaceSave();
     }
 
     function objectBounds(object) {
@@ -490,6 +734,7 @@
     }
 
     function fitAll() {
+      if (scaleLocked) return;
       if (!objects.length) return resetView();
       const points = objects.flatMap(objectBounds);
       const xs = points.map(point => point[0]);
@@ -504,13 +749,37 @@
       ));
       view.x = width / 2 - (minX + maxX) / 2 * view.zoom;
       view.y = height / 2 - (minY + maxY) / 2 * view.zoom;
-      render();
+      render(); queueWorkspaceSave();
     }
 
     function resetView() {
+      if (scaleLocked) return;
       view.zoom = 48;
       view.x = view.y = 0;
-      render();
+      render(); queueWorkspaceSave();
+    }
+
+    function alignFactIcons() {
+      const facts = $('.layer-facts');
+      if (!facts) return;
+      const style = getComputedStyle(facts);
+      ctx.save();
+      ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const digits = ctx.measureText('0123456789');
+      const arrow = ctx.measureText('↕');
+      ctx.restore();
+      const digitHeight = digits.actualBoundingBoxAscent + digits.actualBoundingBoxDescent;
+      const arrowHeight = arrow.actualBoundingBoxAscent + arrow.actualBoundingBoxDescent;
+      if (!digitHeight || !arrowHeight) return;
+      const arrowScale = digitHeight / arrowHeight;
+      const root = document.documentElement.style;
+      root.setProperty('--fact-digit-height', `${digitHeight}px`);
+      root.setProperty('--length-icon-size', `${parseFloat(style.fontSize) * arrowScale}px`);
+      root.setProperty(
+        '--length-icon-shift',
+        `${digits.actualBoundingBoxDescent - arrow.actualBoundingBoxDescent * arrowScale}px`,
+      );
+      root.setProperty('--circumference-icon-shift', `${digits.actualBoundingBoxDescent}px`);
     }
 
     function renderLayers() {
@@ -519,51 +788,162 @@
       for (const object of [...objects].reverse()) {
         const layer = document.createElement('div');
         layer.className = `layer${object === selected ? ' selected' : ''}`;
-        const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.style.background = object.color;
-        const name = document.createElement('span'); name.className = 'layer-name'; name.textContent = `${object.product.n} — ${object.size.label}`;
-        const detail = document.createElement('small'); detail.textContent = formatLength(object.size.length_in); name.appendChild(detail);
+        const approximate = object.product.rating === 'bad_perspective';
+        const swatch = document.createElement('span');
+        swatch.className = `swatch${approximate ? ' approximate' : ''}`;
+        swatch.style.backgroundColor = object.color;
+        const body = document.createElement('div'); body.className = 'layer-body';
+        const name = document.createElement('div'); name.className = 'layer-name'; name.textContent = `${object.product.n} · ${object.size.label}`;
+        const facts = document.createElement('div'); facts.className = 'layer-facts';
+        const addFact = (iconClass, label, value) => {
+          const fact = document.createElement('span');
+          fact.className = 'layer-fact'; fact.title = label;
+          fact.setAttribute('aria-label', `${label}: ${value}`);
+          if (iconClass) {
+            const icon = document.createElement('span');
+            icon.className = `fact-icon ${iconClass}`;
+            icon.setAttribute('aria-hidden', 'true');
+            fact.appendChild(icon);
+          }
+          fact.append(value);
+          facts.appendChild(fact);
+        };
+        addFact('length-icon', 'Length', formatLength(object.size.length_in));
+        if (Number.isFinite(object.size.circumference_in)) {
+          addFact('circumference-icon', 'Circumference', formatLength(object.size.circumference_in));
+        }
+        if (Number.isFinite(object.size.price_usd)) {
+          addFact('', 'Price (USD)', formatPrice(object.size.price_usd));
+        }
+        body.append(name);
+        if (approximate) {
+          const quality = document.createElement('div');
+          quality.className = 'quality-note'; quality.textContent = 'Approximate outline';
+          body.appendChild(quality);
+        }
+        body.append(facts);
+
+        const alternatives = object.product.sizes.filter(size => size.index !== object.size.index);
+        let sizes = null;
+        if (alternatives.length) {
+          sizes = document.createElement('div'); sizes.className = 'layer-sizes';
+          sizes.append('Also available in ');
+          alternatives.forEach(size => {
+            const existing = objects.some(item =>
+              String(item.product.id) === String(object.product.id) && item.size.index === size.index);
+            const button = document.createElement('button');
+            button.textContent = size.label;
+            button.classList.toggle('added', existing);
+            button.title = existing ? 'Already on canvas; select it' : `Add ${size.label}`;
+            button.addEventListener('click', event => {
+              event.stopPropagation();
+              addProductSize(object.product, size);
+            });
+            sizes.appendChild(button);
+          });
+        }
+
+        const links = document.createElement('div'); links.className = 'layer-links';
+        const addLink = (label, href) => {
+          const link = document.createElement('a');
+          link.href = href; link.target = '_blank'; link.rel = 'noopener'; link.textContent = label;
+          link.addEventListener('click', event => event.stopPropagation());
+          links.appendChild(link);
+        };
+        if (object.product.toybox_url) addLink('Toybox ↗', object.product.toybox_url);
+        if (object.product.vendor_url) addLink(`${object.product.vn} ↗`, object.product.vendor_url);
+        else if (object.product.vn) {
+          const vendor = document.createElement('span'); vendor.textContent = object.product.vn;
+          links.appendChild(vendor);
+        }
+        if (links.childElementCount) body.appendChild(links);
+        if (sizes) body.appendChild(sizes);
         const remove = document.createElement('button'); remove.className = 'remove'; remove.textContent = '×';
         remove.addEventListener('click', event => { event.stopPropagation(); removeObject(object); });
-        layer.append(swatch, name, remove);
+        layer.append(swatch, body, remove);
         layer.addEventListener('click', () => selectObject(object));
         layers.appendChild(layer);
       }
+      alignFactIcons();
+      layers.querySelector('.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
     function selectObject(object) {
       selected = object;
-      const index = objects.indexOf(object);
-      if (index >= 0) objects.push(...objects.splice(index, 1));
-      renderLayers(); render();
+      renderLayers(); render(); queueWorkspaceSave();
+    }
+
+    function clearSelection() {
+      if (!selected) return;
+      selected = null;
+      renderLayers(); render(); queueWorkspaceSave();
     }
 
     function removeObject(object) {
       objects = objects.filter(item => item !== object);
       if (selected === object) selected = objects.at(-1) || null;
-      renderLayers(); render();
+      renderLayers(); render(); queueWorkspaceSave();
     }
 
     function pointerPosition(event) {
       const rect = canvas.getBoundingClientRect();
       return [event.clientX - rect.left, event.clientY - rect.top];
     }
+
+    function startPinch() {
+      const [first, second] = [...touches.values()];
+      if (!second) return pinch = null;
+      const x = (first[0] + second[0]) / 2;
+      const y = (first[1] + second[1]) / 2;
+      pinch = {
+        distance: Math.hypot(second[0] - first[0], second[1] - first[1]),
+        zoom: view.zoom,
+        world: screenToWorld(x, y),
+      };
+      drag = pan = null;
+    }
+
     canvas.addEventListener('pointerdown', event => {
       if (event.button !== 0 && event.button !== 1) return;
       if (event.button === 1) event.preventDefault();
       const [x, y] = pointerPosition(event);
       canvas.setPointerCapture(event.pointerId);
+      if (event.pointerType === 'touch') {
+        touches.set(event.pointerId, [x, y]);
+        if (touches.size === 2) {
+          startPinch();
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+      }
       const object = event.button === 0 ? hitObject(x, y) : null;
       if (object) {
         selectObject(object);
         drag = { x, y, ox: object.x, oy: object.y };
       } else {
-        if (event.button === 0) { selected = null; renderLayers(); }
+        if (event.button === 0) clearSelection();
         pan = { x, y, ox: view.x, oy: view.y };
       }
       canvas.style.cursor = 'grabbing';
     });
     canvas.addEventListener('pointermove', event => {
       const [x, y] = pointerPosition(event);
+      if (event.pointerType === 'touch' && touches.has(event.pointerId)) {
+        touches.set(event.pointerId, [x, y]);
+        if (pinch) {
+          const [first, second] = [...touches.values()];
+          const midpointX = (first[0] + second[0]) / 2;
+          const midpointY = (first[1] + second[1]) / 2;
+          const distance = Math.hypot(second[0] - first[0], second[1] - first[1]);
+          view.zoom = scaleLocked ? pinch.zoom : Math.max(
+            MIN_ZOOM, Math.min(MAX_ZOOM, pinch.zoom * distance / Math.max(1, pinch.distance)),
+          );
+          view.x = midpointX - pinch.world[0] * view.zoom;
+          view.y = midpointY - pinch.world[1] * view.zoom;
+          render();
+          return;
+        }
+      }
       if (drag && selected) {
         selected.x = drag.ox + (x - drag.x) / view.zoom;
         selected.y = drag.oy + (y - drag.y) / view.zoom;
@@ -574,7 +954,16 @@
         render();
       }
     });
-    const finishDrag = () => { drag = pan = null; canvas.style.cursor = 'grab'; };
+    const finishDrag = event => {
+      if (event.pointerType === 'touch') {
+        touches.delete(event.pointerId);
+        if (touches.size >= 2) startPinch();
+        else pinch = null;
+      }
+      drag = pan = null;
+      canvas.style.cursor = 'grab';
+      queueWorkspaceSave();
+    };
     canvas.addEventListener('pointerup', finishDrag);
     canvas.addEventListener('pointercancel', finishDrag);
     canvas.addEventListener('auxclick', event => {
@@ -582,16 +971,18 @@
     });
     canvas.addEventListener('wheel', event => {
       event.preventDefault();
+      if (scaleLocked) return;
       const [x, y] = pointerPosition(event);
-      const [worldX, worldY] = screenToWorld(x, y);
-      view.zoom = Math.max(
-        MIN_ZOOM,
-        Math.min(MAX_ZOOM, view.zoom * Math.exp(-event.deltaY * .0015)),
-      );
-      view.x = x - worldX * view.zoom;
-      view.y = y - worldY * view.zoom;
-      render();
+      setZoom(view.zoom * Math.exp(-event.deltaY * .0015), x, y);
+      render(); queueWorkspaceSave();
     }, { passive: false });
+    addEventListener('keydown', event => {
+      if (event.key === 'Escape') return clearSelection();
+      if (!['Delete', 'Backspace'].includes(event.key) || !selected ||
+          event.target.closest('input, textarea, select, [contenteditable]')) return;
+      event.preventDefault();
+      removeObject(selected);
+    });
 
     for (const input of [$('#search'), $('#vendor')]) input.addEventListener('input', filterProducts);
     $('#type').addEventListener('change', filterProducts);
@@ -602,32 +993,67 @@
     $('#imperial').addEventListener('click', () => setUnits(false));
     $('#metric').addEventListener('click', () => setUnits(true));
     $('#fit-all').addEventListener('click', fitAll);
-    $('#reset-view').addEventListener('click', resetView);
-    $('#remove-selected').addEventListener('click', () => { if (selected) removeObject(selected); });
-    $('#clear').addEventListener('click', () => { objects = []; selected = null; renderLayers(); render(); });
-    new ResizeObserver(render).observe(wrap);
+    $('#scale-down').addEventListener('click', () => adjustScale(-1));
+    $('#scale-up').addEventListener('click', () => adjustScale(1));
+    $('#scale-lock').addEventListener('click', toggleScaleLock);
+    $('#clear').addEventListener('click', () => { objects = []; selected = null; renderLayers(); render(); saveWorkspace(); });
+    function revealAddProducts() {
+      if (!matchMedia('(max-width:700px)').matches) return;
+      const controls = $('#controls');
+      controls.scrollTop += $('#add-products').getBoundingClientRect().top -
+        $('#mobile-panel-toggle').getBoundingClientRect().bottom;
+    }
+    function revealFocusedInput() {
+      const input = document.activeElement;
+      if (!matchMedia('(max-width:700px)').matches || !input?.matches('#controls input')) return;
+      requestAnimationFrame(() => {
+        const rect = input.getBoundingClientRect();
+        const top = $('#mobile-panel-toggle').getBoundingClientRect().bottom + 12;
+        const bottom = (window.visualViewport?.offsetTop || 0) +
+          (window.visualViewport?.height || innerHeight) - 12;
+        if (rect.bottom > bottom) $('#controls').scrollTop += rect.bottom - bottom;
+        else if (rect.top < top) $('#controls').scrollTop -= top - rect.top;
+      });
+    }
+    let canvasSize = null;
+    $('#mobile-panel-toggle').addEventListener('click', () => {
+      const collapsed = $('main').classList.toggle('panel-collapsed');
+      $('#mobile-panel-toggle').setAttribute('aria-expanded', String(!collapsed));
+      canvasSize = [wrap.clientWidth, wrap.clientHeight];
+      render();
+      if (!collapsed) requestAnimationFrame(revealAddProducts);
+    });
+    $('#controls').addEventListener('focusin', revealFocusedInput);
+    window.visualViewport?.addEventListener('resize', revealFocusedInput);
+    addEventListener('pagehide', saveWorkspace);
+    new ResizeObserver(() => {
+      const nextSize = [wrap.clientWidth, wrap.clientHeight];
+      if (canvasSize) {
+        view.x += (nextSize[0] - canvasSize[0]) / 2;
+        view.y += (nextSize[1] - canvasSize[1]) / 2;
+        queueWorkspaceSave();
+      }
+      canvasSize = nextSize;
+      render();
+    }).observe(wrap);
 
     (async () => {
       try {
         const response = await fetch('/api/comparison/products');
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
         products = (await response.json()).products;
-        for (const type of [...new Set(products.map(product => product.pt))].sort()) {
-          const option = document.createElement('option');
-          option.value = option.textContent = type;
-          $('#type').appendChild(option);
+        filterProducts();
+        const restored = await restoreWorkspace();
+        if (!restored) {
+          const card = products.find(product => String(product.id) === DEFAULT_PRODUCT_ID);
+          if (card?.sizes[0]) await addProductSize(card, card.sizes[0]);
         }
-        const sizeLabels = [...new Set(products.flatMap(product =>
-          product.sizes.map(size => size.label)))].sort((left, right) =>
-            left.localeCompare(right, undefined, {numeric: true, sensitivity: 'base'}));
-        for (const label of sizeLabels) {
-          const option = document.createElement('option');
-          option.value = option.textContent = label;
-          $('#size-filter').appendChild(option);
-        }
-        filterProducts(); render();
-        setStatus(products.length ? `${products.length} reviewed products available` : 'No reviewed products with size and length-vector data yet');
+        workspaceReady = true;
+        saveWorkspace();
+        renderLayers(); render();
+        setStatus(products.length ? `${products.length} reviewed products available for comparison` : 'No reviewed products with size and length-vector data yet');
       } catch (error) { setStatus(error.message, true); }
+      requestAnimationFrame(revealAddProducts);
     })();
   </script>
 </body>

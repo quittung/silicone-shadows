@@ -23,6 +23,10 @@
 }
 
 @media (max-width: 700px) {
-  .app-header { flex-wrap: wrap; }
-  [data-app-nav] { flex-wrap: wrap; }
+  .app-header { gap: .5rem; padding: .5rem .7rem; overflow: hidden; }
+  .app-header > strong { flex: none; }
+  [data-app-nav] { min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  [data-app-nav]::-webkit-scrollbar { display: none; }
+  [data-app-nav] nav, [data-app-nav] .nav-logout { flex: none; }
+  [data-app-nav] nav a { display: inline-flex; align-items: center; min-height: 40px; white-space: nowrap; }
 }

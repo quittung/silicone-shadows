@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Silicone Shadows — Moderation</title>
+  <title>Silicone Shadows · Moderation</title>
   <style>
     :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --bad:#fb7185; }
     * { box-sizing:border-box; }
@@ -30,7 +30,7 @@
     #status { color:var(--muted); margin:.8rem 0; }
     @media (max-width:700px) { .images { grid-template-columns:1fr; } }
   </style>
-  <link rel="stylesheet" href="/static/nav.css?v=20260814-1">
+  <link rel="stylesheet" href="/static/nav.css?v=20260821-2">
 </head>
 <body>
   <header class="app-header">
@@ -72,7 +72,7 @@
       status.textContent = data.submissions.length ? `${data.submissions.length} pending` : 'Nothing is waiting for review.';
       for (const item of data.submissions) {
         const article = document.createElement('article');
-        const names = item.products.map(product => `${product.vendor} — ${product.name}`).join(' / ');
+        const names = item.products.map(product => `${product.vendor} · ${product.name}`).join(' / ');
         article.innerHTML = `<h2></h2><div class="meta"></div><div class="images"><figure><figcaption>Source</figcaption><img class="source" alt="Submitted source"></figure><figure class="outline-figure"><figcaption>Normalized outline</figcaption><img class="outline" alt="Submitted outline"></figure></div><div class="actions"><button class="reject">Reject</button><div class="rating-options" role="radiogroup" aria-label="Rating"><button data-rating="unusable" role="radio">Unusable</button><button data-rating="bad_perspective" role="radio">Bad perspective</button><button data-rating="good" role="radio">Good</button></div><button class="approve">Accept</button></div>`;
         article.querySelector('h2').textContent = names;
         const source = item.kind === 'independent_update' ? 'metadata-only update' : `${item.source} source`;

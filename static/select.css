@@ -1,0 +1,8 @@
+@supports (appearance:base-select) {
+  select, select::picker(select) { appearance:base-select; }
+  select::picker(select) {
+    inline-size:anchor-size(width); max-block-size:min(60vh,24rem); overflow-y:auto;
+    color:var(--text); background:#252c34; border:1px solid var(--border); border-radius:6px;
+  }
+  select option { overflow:hidden; padding:.5rem .6rem; text-overflow:ellipsis; white-space:nowrap; }
+}
