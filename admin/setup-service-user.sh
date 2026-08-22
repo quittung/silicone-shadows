@@ -39,5 +39,5 @@ find "$app_dir/.local" -type d -exec chmod 0700 {} +
 find "$app_dir/.local" -type f -exec chmod 0600 {} +
 
 echo "Service account and private hosted storage are ready."
-echo "Copy deploy/silicone-shadows.service.example to /etc/systemd/system/"
+echo "Copy admin/silicone-shadows.service.example to /etc/systemd/system/"
 echo "after replacing APP_DIR and DOMAIN."

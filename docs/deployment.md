@@ -28,7 +28,7 @@ Clone the application outside `/home`, for example at
 `/opt/silicone-shadows`, install its dependencies, and run:
 
 ```sh
-sudo deploy/setup-service-user.sh /opt/silicone-shadows
+sudo admin/setup-service-user.sh /opt/silicone-shadows
 ```
 
 This creates a non-login `silicone-shadows` operating-system account and seeds
@@ -37,8 +37,8 @@ read-only except for its ignored catalog cache.
 
 Copy and customize:
 
-- `deploy/silicone-shadows.service.example`
-- `deploy/nginx.conf.example`
+- `admin/silicone-shadows.service.example`
+- `admin/nginx.conf.example`
 
 Replace `APP_DIR` and `DOMAIN`. The nginx template expects an existing
 Let's Encrypt certificate under `/etc/letsencrypt/live/DOMAIN/`. Validate the
@@ -51,6 +51,40 @@ guest uploads to disk.
 
 Never use `--no-secure-cookies` for a public deployment. That option exists
 only for direct local HTTP testing.
+
+## Application updates
+
+Put `SILICONE_SHADOWS_SERVER` and `SILICONE_SHADOWS_USER` in the ignored
+`.env` file as described in [development.md](development.md). Preview the
+runtime differences without changing production:
+
+```sh
+admin/deploy.sh
+```
+
+Deploy the current worktree with:
+
+```sh
+admin/deploy.sh --apply
+```
+
+A clean worktree is required by default. To deliberately deploy uncommitted
+changes for testing, use:
+
+```sh
+admin/deploy.sh --apply --allow-dirty
+```
+
+The script runs the test suite, stages and checksum-verifies the runtime files,
+backs up the current deployment, publishes non-HTML assets before HTML, and
+checks the service and public authentication boundary. Backend deployments also
+back up SQLite and restart the service. Failed health checks restore the prior
+code; database backups are retained but never restored automatically.
+
+Dataset files are deliberately excluded; use `admin/release_dataset.py` for
+dataset synchronization and releases. Dependency changes are also refused so
+the production virtual environment and its requirements file can be updated
+deliberately.
 
 ## Storage and operation
 

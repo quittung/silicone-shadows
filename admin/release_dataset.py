@@ -17,7 +17,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 RELEASE_NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 INTEGER_VERSION_PATTERN = re.compile(r"v(\d+)")
 LEGACY_VERSION_PATTERN = re.compile(r"v0\.(\d+)\.0")

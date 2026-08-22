@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-import release_dataset
+from admin import release_dataset
 
 
 class ReleaseDatasetTest(unittest.TestCase):
@@ -56,13 +56,13 @@ class ReleaseDatasetTest(unittest.TestCase):
             {"tagName": "special-snapshot"},
         ]
         with patch(
-            "release_dataset.subprocess.check_output",
+            "admin.release_dataset.subprocess.check_output",
             return_value=json.dumps(releases),
         ):
             self.assertEqual(release_dataset.next_release_name(), "v7")
         releases.append({"tagName": "v9"})
         with patch(
-            "release_dataset.subprocess.check_output",
+            "admin.release_dataset.subprocess.check_output",
             return_value=json.dumps(releases),
         ):
             self.assertEqual(release_dataset.next_release_name(), "v10")
@@ -105,8 +105,10 @@ class ReleaseDatasetTest(unittest.TestCase):
         )
 
     def test_sync_hosted_can_extend_check_mode(self):
-        with patch("sys.argv", ["release_dataset.py", "--check", "--sync-hosted"]):
-            with patch("release_dataset.check_state") as check_state:
+        with patch(
+            "sys.argv", ["admin/release_dataset.py", "--check", "--sync-hosted"]
+        ):
+            with patch("admin.release_dataset.check_state") as check_state:
                 release_dataset.main()
         check_state.assert_called_once_with(True)
 

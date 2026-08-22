@@ -28,10 +28,10 @@ server/
 static/                   # HTML, CSS and browser-side interaction
 tests/                    # local, hosted, outline and release tests
 certificates/             # additional verified catalog trust root
-deploy/                   # hosted deployment templates
+admin/                    # deployment, release, and service administration
 ```
 
-`outline.py` owns standalone mask-to-SVG conversion. `release_dataset.py` owns
+`outline.py` owns standalone mask-to-SVG conversion. `admin/release_dataset.py` owns
 dataset validation, packaging and draft-release automation. Neither depends on
 the web server package.
 
@@ -40,24 +40,24 @@ the web server package.
 Build a data-only archive using the next integer release name from GitHub:
 
 ```sh
-.venv/bin/python release_dataset.py
+.venv/bin/python admin/release_dataset.py
 ```
 
 Pass a name such as `v12` explicitly to override the automatic name. After
 inspecting the generated files under `dist/`, create a GitHub draft with:
 
 ```sh
-.venv/bin/python release_dataset.py --draft
+.venv/bin/python admin/release_dataset.py --draft
 ```
 
 Check the current dataset against the latest published release without changing
 anything:
 
 ```sh
-.venv/bin/python release_dataset.py --check
+.venv/bin/python admin/release_dataset.py --check
 ```
 
-For a hosted deployment, put its SSH destination in the ignored `.env` file:
+For hosted administration, put its SSH destination in the ignored `.env` file:
 
 ```dotenv
 SILICONE_SHADOWS_SERVER=example.com
@@ -68,7 +68,7 @@ Then sync approved records, commit them, push, and create the verified draft in
 one run:
 
 ```sh
-.venv/bin/python release_dataset.py --sync-hosted --push --draft
+.venv/bin/python admin/release_dataset.py --sync-hosted --push --draft
 ```
 
 Omit `--push --draft` to sync, commit, and build the archive locally. Syncing
