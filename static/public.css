@@ -43,6 +43,8 @@ p { color: var(--muted); }
 .landing-header p { margin: 0; }
 #choices { display: grid; gap: .8rem; margin-top: 1.2rem; }
 .guest-contact { margin: 1rem 0 0; }
+.guest-contact a { color:var(--muted); }
+.guest-contact a:hover { color:var(--text); }
 .choice {
   display: grid; gap: .35rem; padding: 1rem; border: 1px solid var(--border);
   border-radius: 8px; background: #20262d; color: var(--text);

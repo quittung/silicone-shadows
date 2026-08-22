@@ -63,7 +63,9 @@
     .layer-links a { color:var(--muted); text-decoration:none; }
     .layer-links a:hover { color:var(--accent); }
     .remove { width:auto; padding:.2rem .45rem; color:var(--danger); }
-    #status { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
+    #compare-footer { color:var(--muted); font-size:.85rem; margin-top:.55rem; }
+    #compare-footer a { color:var(--muted); }
+    #compare-footer a:hover { color:var(--accent); }
     #status.error { color:var(--danger); }
     #mobile-panel-toggle { display:none; }
     @media (max-width:700px) {
@@ -142,14 +144,19 @@
         <legend>Products</legend>
         <div id="layers"></div>
       </fieldset>
-      <div id="status"></div>
+      <div id="compare-footer">
+        <span id="status">Loading products…</span> ·
+        This dataset is designed to complement the
+        <a href="https://fantasytoybox.net/" rel="noreferrer">Fantasy Toybox catalog</a>.
+        <a href="https://github.com/quittung/silicone-shadows" rel="noreferrer">Learn more on GitHub ↗</a>
+      </div>
     </aside>
     <section id="canvas-wrap">
       <canvas id="canvas"></canvas>
       <div id="empty">Add one or more products to compare them.</div>
     </section>
   </main>
-  <script src="/static/nav.js?v=20260822-1"></script>
+  <script src="/static/nav.js?v=20260822-2"></script>
   <script>
     const $ = selector => document.querySelector(selector);
     const canvas = $('#canvas');
@@ -1087,7 +1094,7 @@
         workspaceReady = true;
         saveWorkspace();
         renderLayers(); render();
-        setStatus(products.length ? `${products.length} reviewed products available for comparison` : 'No reviewed products with size and length-vector data yet');
+        setStatus(products.length ? `${products.length} products available for comparison` : 'No products with size and length-vector data yet');
       } catch (error) { setStatus(error.message, true); }
       requestAnimationFrame(revealAddProducts);
     })();

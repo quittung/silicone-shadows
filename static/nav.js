@@ -4,6 +4,7 @@
 
   const nav = document.createElement('nav');
   nav.setAttribute('aria-label', 'Primary');
+  const authenticatedLinks = [];
   const links = [
     ['home', '/', 'Home'],
     ['editor', '/editor', 'Editor'],
@@ -16,6 +17,10 @@
     link.href = href;
     link.textContent = label;
     link.classList.toggle('active', root.dataset.appNav === name);
+    if (name === 'editor' || name === 'stats') {
+      link.hidden = true;
+      authenticatedLinks.push(link);
+    }
     if (name === 'moderate') {
       link.id = 'moderate-link';
       link.hidden = true;
@@ -34,13 +39,14 @@
   logout.textContent = 'Log out';
   logout.hidden = true;
   root.append(nav, logout);
-  requestAnimationFrame(() => {
+  function centerActive() {
     const active = nav.querySelector('.active');
     if (!active) return;
     const container = root.getBoundingClientRect();
     const tab = active.getBoundingClientRect();
     root.scrollLeft += tab.left - container.left - (container.width - tab.width) / 2;
-  });
+  }
+  requestAnimationFrame(centerActive);
 
   const moderateLink = document.querySelector('#moderate-link');
   function setModerationCount(count) {
@@ -59,6 +65,10 @@
     const response = await fetch('/api/session');
     if (!response.ok) return {hosted: false, user: null};
     const session = await response.json();
+    for (const link of authenticatedLinks) {
+      link.hidden = session.hosted && !session.user;
+    }
+    requestAnimationFrame(centerActive);
     logout.hidden = !session.user;
     moderateLink.hidden = !session.user?.reviewer;
     if (session.user?.reviewer) {

@@ -40,7 +40,8 @@ catalog or its images.
 The quickest way to contribute or create an outline for your own product is the
 [hosted version of this app](https://shadows.qtng.dev/). Guests can create and
 download their own entries, and contributors can submit their work to be included in
-catalog. Contribution requires an invitation; contact `qtng` on Discord.
+catalog. Contribution requires an invitation; contact `qtng` on Discord or
+email [shadows@qtng.dev](mailto:shadows@qtng.dev).
 
 You can instead run the app locally and contribute through Git. With a coding
 agent, ask it to **set up this repository and start the local review app**; it
@@ -70,5 +71,6 @@ details.
 
 Silicone Shadows is independent and is not affiliated with, endorsed by, or
 sponsored by Fantasy Toybox or any represented vendor. If you have concerns
-about the accuracy, attribution, provenance, or inclusion of material, please
-[open an issue](https://github.com/quittung/silicone-shadows/issues).
+about the accuracy, attribution, provenance, or inclusion of material—or want
+something removed—please [open an issue](https://github.com/quittung/silicone-shadows/issues)
+or email [shadows@qtng.dev](mailto:shadows@qtng.dev).
