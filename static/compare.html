@@ -67,6 +67,13 @@
     #compare-footer a { color:var(--muted); }
     #compare-footer a:hover { color:var(--accent); }
     #status.error { color:var(--danger); }
+    dialog { width:min(26rem,calc(100% - 2rem)); padding:0; color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+    dialog::backdrop { background:rgb(0 0 0 / 70%); }
+    .age-gate-form { display:grid; gap:.8rem; padding:1.2rem; }
+    .age-gate-form h2, .age-gate-form p { margin:0; }
+    .age-gate-note { color:var(--muted); font-size:.85rem; }
+    .age-gate-actions { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-top:.3rem; }
+    #confirm-age { border-color:#168da0; background:#164b56; }
     #mobile-panel-toggle { display:none; }
     @media (max-width:700px) {
       main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,42dvh); }
@@ -84,6 +91,7 @@
       .remove { min-width:44px; height:44px; }
       .layer-sizes button { min-width:0; min-height:0; padding:0; }
       .scale-lock-icon { opacity:1; }
+      .age-gate-actions { grid-template-columns:1fr; }
     }
   </style>
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
@@ -94,6 +102,17 @@
     <strong>Silicone Shadows</strong>
     <div data-app-nav="compare"></div>
   </header>
+  <dialog id="age-gate" aria-labelledby="age-gate-title">
+    <form method="dialog" class="age-gate-form">
+      <h2 id="age-gate-title">Confirm your age</h2>
+      <p>The comparison includes adult products. You must be 18 or older to continue.</p>
+      <p class="age-gate-note">If you confirm, this browser will remember it.</p>
+      <div class="age-gate-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button id="confirm-age" value="confirm">I am 18 or older</button>
+      </div>
+    </form>
+  </dialog>
   <main>
     <aside id="controls">
       <button id="mobile-panel-toggle" type="button" aria-expanded="true">
@@ -1080,7 +1099,7 @@
       render();
     }).observe(wrap);
 
-    (async () => {
+    async function loadComparison() {
       try {
         const response = await fetch('/api/comparison/products');
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -1097,7 +1116,20 @@
         setStatus(products.length ? `${products.length} products available for comparison` : 'No products with size and length-vector data yet');
       } catch (error) { setStatus(error.message, true); }
       requestAnimationFrame(revealAddProducts);
-    })();
+    }
+
+    const ageGate = $('#age-gate');
+    $('#confirm-age').addEventListener('click', () => {
+      try { localStorage.setItem('silicone_shadows_age_confirmed', '1'); } catch (_) {}
+      loadComparison();
+    });
+    ageGate.addEventListener('close', () => {
+      if (ageGate.returnValue !== 'confirm') location.href = '/';
+    });
+    try {
+      if (localStorage.getItem('silicone_shadows_age_confirmed') === '1') loadComparison();
+      else ageGate.showModal();
+    } catch (_) { ageGate.showModal(); }
   </script>
 </body>
 </html>

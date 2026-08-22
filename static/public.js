@@ -5,8 +5,6 @@ const editorScreen = $('#editor-screen');
 const uploadCard = $('#upload-card');
 const picker = $('#image');
 const uploadButton = $('#upload');
-const compareAction = $('#compare-choice .choice-action');
-const ageGate = $('#age-gate');
 const canvas = $('#canvas');
 const wrap = $('#canvas-wrap');
 const ctx = canvas.getContext('2d');
@@ -32,18 +30,6 @@ let sessionUser = null;
 let productMetadata = null;
 let archiveProof = null;
 const view = {zoom: 1, x: 0, y: 0, fit: 1};
-
-compareAction.addEventListener('click', event => {
-  try {
-    if (localStorage.getItem('silicone_shadows_age_confirmed') === '1') return;
-  } catch (_) {}
-  event.preventDefault();
-  ageGate.showModal();
-});
-$('#confirm-age').addEventListener('click', () => {
-  try { localStorage.setItem('silicone_shadows_age_confirmed', '1'); } catch (_) {}
-  location.href = compareAction.href;
-});
 
 function setStatus(target, message, error = false) {
   target.textContent = message;
