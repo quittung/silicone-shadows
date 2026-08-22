@@ -76,17 +76,20 @@
     #confirm-age { border-color:#168da0; background:#164b56; }
     #mobile-panel-toggle { display:none; }
     @media (max-width:700px) {
-      main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,42dvh); }
-      main.panel-collapsed { grid-template-rows:minmax(0,1fr) auto; }
+      main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,min(31rem,calc(100% - 12rem))); }
+      main.panel-collapsed { grid-template-rows:minmax(0,1fr) 0; }
       body.keyboard-open main { grid-template-rows:0 minmax(0,1fr); }
-      aside { grid-column:1; grid-row:2; padding:0 .65rem .65rem; border-top:0; border-left:0; }
+      aside { grid-column:1; grid-row:2; padding:22px .65rem .65rem; border-top:2px solid rgb(152 163 174 / 70%); border-left:0; }
       #canvas-wrap { grid-column:1; grid-row:1; }
-      #mobile-panel-toggle { display:flex; position:sticky; top:0; z-index:2; align-items:center; justify-content:space-between; width:calc(100% + 1.3rem); min-height:48px; margin:0 -.65rem .65rem; padding:0 .85rem; border:0; border-bottom:1px solid var(--border); border-radius:0; background:#20262d; color:var(--text); font-weight:650; }
+      #mobile-panel-toggle { display:flex; grid-column:1; grid-row:2; z-index:2; align-self:start; justify-self:center; align-items:center; justify-content:center; width:44px; min-height:44px; padding:0; transform:translateY(-50%); border:2px solid rgb(152 163 174 / 70%); border-radius:50%; background:#2c3540; color:var(--text); box-shadow:0 1px 5px rgb(0 0 0 / 70%); }
       #mobile-panel-toggle svg { width:1.2rem; height:1.2rem; fill:none; stroke:currentColor; stroke-width:1.8; transition:transform .15s; }
-      main.panel-collapsed aside { padding:0; overflow:hidden; }
-      main.panel-collapsed #mobile-panel-toggle { width:100%; margin:0; }
-      main.panel-collapsed #mobile-panel-toggle svg { transform:rotate(180deg); }
-      main.panel-collapsed aside > :not(#mobile-panel-toggle) { display:none; }
+      #mobile-panel-toggle .panel-cog { display:none; }
+      main.panel-collapsed aside { padding:0; overflow:hidden; border:0; }
+      main.panel-collapsed #mobile-panel-toggle { grid-row:1; align-self:end; justify-self:end; width:48px; min-height:48px; margin:0 1rem 1rem 0; transform:none; background:#164b56; border-color:#168da0; }
+      main.panel-collapsed #mobile-panel-toggle:hover, main.panel-collapsed #mobile-panel-toggle:focus-visible { background:#1b5965; border-color:var(--accent); }
+      main.panel-collapsed #mobile-panel-toggle .panel-chevron { display:none; }
+      main.panel-collapsed #mobile-panel-toggle .panel-cog { display:block; }
+      main.panel-collapsed aside > * { display:none; }
       input, select, button { min-height:44px; }
       .remove { min-width:44px; height:44px; }
       .layer-sizes button { min-width:0; min-height:0; padding:0; }
@@ -114,11 +117,14 @@
     </form>
   </dialog>
   <main>
+    <button id="mobile-panel-toggle" type="button" aria-label="Collapse controls" aria-expanded="true">
+      <svg class="panel-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      <svg class="panel-cog" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/>
+        <circle cx="12" cy="12" r="3"/>
+      </svg>
+    </button>
     <aside id="controls">
-      <button id="mobile-panel-toggle" type="button" aria-expanded="true">
-        <span>Controls</span>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-      </button>
       <fieldset>
         <legend>Display</legend>
         <div class="scale-control" role="group" aria-label="Canvas scale">
@@ -164,7 +170,7 @@
         <div id="layers"></div>
       </fieldset>
       <div id="compare-footer">
-        <span id="status">Loading products…</span> ·
+        <span id="status">Loading products…</span>.
         This dataset is designed to complement the
         <a href="https://fantasytoybox.net/" rel="noreferrer">Fantasy Toybox catalog</a>.
         <a href="https://github.com/quittung/silicone-shadows" rel="noreferrer">Learn more on GitHub ↗</a>
@@ -623,7 +629,7 @@
     function drawScaleBar(width, height) {
       const { unitsPerInch, majorUnits } = scaleLayout();
       const pixels = majorUnits / unitsPerInch * view.zoom;
-      const x = width - pixels - 24;
+      const x = 24;
       const y = height - 24;
       ctx.save();
       ctx.fillStyle = 'rgb(26 31 37 / 88%)';
@@ -1078,6 +1084,7 @@
     $('#mobile-panel-toggle').addEventListener('click', () => {
       const collapsed = $('main').classList.toggle('panel-collapsed');
       $('#mobile-panel-toggle').setAttribute('aria-expanded', String(!collapsed));
+      $('#mobile-panel-toggle').setAttribute('aria-label', collapsed ? 'Open controls' : 'Collapse controls');
       canvasSize = [wrap.clientWidth, wrap.clientHeight];
       render();
       if (!collapsed) requestAnimationFrame(revealAddProducts);
