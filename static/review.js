@@ -41,6 +41,7 @@ function editorUrlView(itemId = current?.id) {
     name: $('#name-filter').value,
     vendor: $('#vendor-filter').value,
     type: $('#type-filter').value,
+    measurements: $('#measurements-filter').value,
     order: hostedMode ? $('#navigation-order').value : null,
     item: itemId || '',
   };
@@ -58,6 +59,7 @@ function restoreEditorControls(urlState) {
   $('#name-filter').value = urlState.name;
   $('#vendor-filter').value = urlState.vendor;
   $('#type-filter').value = urlState.type;
+  $('#measurements-filter').value = urlState.measurements;
   if ($('#type-filter').value !== urlState.type) $('#type-filter').value = '';
   if (hostedMode) {
     prioritizeLeastRecent = urlState.order !== 'catalog';
@@ -197,10 +199,14 @@ function matchesCatalogFilters(item) {
   const name = $('#name-filter').value.trim().toLowerCase();
   const vendor = $('#vendor-filter').value;
   const type = $('#type-filter').value.trim().toLowerCase();
+  const measuredOnly = $('#measurements-filter').value === 'measured';
   const products = item.products?.length
     ? item.products
     : [{ n: item.id, vn: '', pt: '' }];
   return products.some(product =>
+    (!measuredOnly || product.sz?.s?.some(size =>
+      ['len', 'circ', 'wcirc', 'length', 'circumference', 'widest_circumference']
+        .some(field => Number.isFinite(size[field]) && size[field] > 0))) &&
     String(product.n).toLowerCase().includes(name) &&
     matchesVendorFilter(product.vn, vendor) &&
     (!type || String(product.pt).toLowerCase() === type));
@@ -1142,6 +1148,7 @@ $('#download-current').addEventListener('click', downloadCurrent);
 $('#save-next').addEventListener('click', saveAndNext);
 $('#filter').addEventListener('change', () => applyFilters());
 $('#type-filter').addEventListener('change', () => applyFilters());
+$('#measurements-filter').addEventListener('change', () => applyFilters());
 $('#navigation-order').addEventListener('change', () => {
   prioritizeLeastRecent = $('#navigation-order').value === 'least-recent';
   try {
@@ -1169,7 +1176,7 @@ document.addEventListener('keydown', event => {
 });
 let filterTimer = null;
 let textFilterHistoryMode = 'replace';
-for (const input of $$('#catalog-filters input')) {
+for (const input of $$('#catalog-filters input[type="search"]')) {
   input.addEventListener('focus', () => { textFilterHistoryMode = 'push'; });
   input.addEventListener('input', () => {
     clearTimeout(filterTimer);
@@ -1183,11 +1190,13 @@ for (const input of $$('#catalog-filters input')) {
 $('#clear-filters').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
+  $('#measurements-filter').value = 'all';
   applyFilters();
 });
 $('#show-all').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
+  $('#measurements-filter').value = 'all';
   applyFilters();
 });
 window.beforeAppLogout = releaseCurrentClaim;

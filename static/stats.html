@@ -12,6 +12,10 @@
     main { max-width:1400px; margin:auto; padding:1.2rem; }
     h1 { margin:.2rem 0 1rem; font-size:1.55rem; }
     h2 { margin:1.5rem 0 .7rem; font-size:1.15rem; }
+    .title-row { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
+    .title-row h1 { margin:0; }
+    .measurement-filter { display:flex; align-items:center; gap:.45rem; color:var(--muted); cursor:pointer; }
+    .measurement-filter input { accent-color:var(--accent); }
     .summary-charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(26rem,1fr)); gap:.8rem; }
     .summary-chart { padding:1rem; border:1px solid var(--border); border-radius:8px; background:var(--panel); }
     .summary-chart h2 { display:flex; justify-content:space-between; gap:1rem; margin:0 0 .7rem; }
@@ -58,7 +62,13 @@
     <div data-app-nav="stats"></div>
   </header>
   <main>
-    <h1>Catalog progress</h1>
+    <div class="title-row">
+      <h1>Catalog progress</h1>
+      <label class="measurement-filter">
+        <input id="measured-only" type="checkbox" disabled>
+        Only products with at least one measurement
+      </label>
+    </div>
     <div id="error"></div>
     <section class="summary-charts">
       <article class="summary-chart">
@@ -153,9 +163,12 @@
       }
     }
 
-    (async () => {
+    async function loadStats() {
+      const measuredOnly = $('#measured-only');
+      measuredOnly.disabled = true;
+      $('#error').textContent = '';
       try {
-        const response = await fetch('/api/stats');
+        const response = await fetch(`/api/stats?measured_only=${measuredOnly.checked}`);
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
         const data = await response.json();
         const summary = data.summary;
@@ -177,8 +190,13 @@
         renderBreakdown($('#types'), data.product_types);
       } catch (error) {
         $('#error').textContent = error.message;
+      } finally {
+        measuredOnly.disabled = false;
       }
-    })();
+    }
+
+    $('#measured-only').addEventListener('change', loadStats);
+    loadStats();
   </script>
 </body>
 </html>

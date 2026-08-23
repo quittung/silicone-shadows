@@ -786,6 +786,14 @@ class Workspace:
             published = self.published_record(product)
             metadata, directory = published if published else ({}, None)
             rating = metadata.get("quality")
+            has_measurements = any(
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and value > 0
+                for size in product.get("sz", {}).get("s", [])
+                if isinstance(size, dict)
+                for value in (size.get("len"), size.get("circ"), size.get("wcirc"))
+            )
             sizes = [
                 size
                 for size in product.get("sz", {}).get("s", [])
@@ -799,6 +807,7 @@ class Workspace:
                     "rating": rating,
                     "directory": directory,
                     "sizes": sizes,
+                    "has_measurements": has_measurements,
                     "comparable": (
                         bool(published)
                         and rating != "unusable"

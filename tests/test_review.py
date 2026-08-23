@@ -26,6 +26,45 @@ def png_bytes(image: Image.Image) -> bytes:
 
 
 class ReviewAppTest(unittest.TestCase):
+    def test_stats_can_only_include_products_with_measurements(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_dir = root / "in"
+            input_dir.mkdir()
+            catalog = root / "products.json"
+            catalog.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": index,
+                            "n": f"Product {index}",
+                            "vn": "Vendor",
+                            "pt": "Type",
+                            "pic": f"images/product-{index}.jpg",
+                            "sz": {"s": [size]},
+                        }
+                        for index, size in enumerate(
+                            [
+                                {"len": 5},
+                                {"circ": 5},
+                                {"wcirc": 5},
+                                {"p": 50},
+                            ],
+                            start=1,
+                        )
+                    ]
+                )
+            )
+
+            with TestClient(create_app(input_dir, root / "work", catalog)) as client:
+                self.assertEqual(
+                    client.get("/api/stats").json()["summary"]["products"], 4
+                )
+                filtered = client.get("/api/stats?measured_only=true").json()
+                self.assertEqual(filtered["summary"]["products"], 3)
+                self.assertEqual(filtered["vendors"][0]["total"], 3)
+                self.assertEqual(filtered["product_types"][0]["total"], 3)
+
     def test_toybox_uses_verified_pinned_root(self) -> None:
         context = ssl_context_for("https://fantasytoybox.net/data/products.json")
         self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)

@@ -178,8 +178,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         return {"selected": selected}
 
     @app.get("/api/stats")
-    def stats() -> dict:
+    def stats(measured_only: bool = False) -> dict:
         records = workspace.catalog_records()
+        if measured_only:
+            records = [record for record in records if record["has_measurements"]]
         reviewed = sum(record["reviewed"] for record in records)
         pending_items = (
             {row["item_id"] for row in store.submissions()} if store else set()
