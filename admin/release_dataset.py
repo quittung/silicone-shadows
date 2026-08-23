@@ -441,6 +441,11 @@ def release_notes(manifest: dict) -> str:
 The attached ZIP contains the published `dataset/` tree and its snapshot manifest.
 Third-party rights and the project's correction/removal process are described in
 `dataset/NOTICE.md` inside the archive.
+
+Attribution is not required. If Silicone Shadows is useful to you, a shout-out
+or link back to https://github.com/quittung/silicone-shadows would be greatly
+appreciated. If you publish a project that uses the dataset, I'd love to see it—
+send a link to shadows@qtng.dev.
 """
 
 
