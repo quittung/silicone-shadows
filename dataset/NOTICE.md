@@ -14,7 +14,6 @@ with, endorsed by, or sponsored by Fantasy Toybox or any vendor represented in
 the dataset. Product and vendor names are used only to identify catalog entries.
 
 If you have concerns about the accuracy, attribution, provenance, or inclusion
-of any material—or want something removed—please
-[open an issue](https://github.com/quittung/silicone-shadows/issues) or email
-[shadows@qtng.dev](mailto:shadows@qtng.dev). Correction and removal requests
-will be reviewed in good faith.
+of any material, please
+[open an issue](https://github.com/quittung/silicone-shadows/issues). Correction
+and removal requests will be reviewed in good faith.
