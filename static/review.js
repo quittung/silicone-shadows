@@ -814,14 +814,7 @@ function markDirty(paint = false) {
 }
 
 function refreshProgressText() {
-  const matching = visibleItems();
-  if (hostedMode) {
-    const catalog = items.filter(item => item.workflow_status === 'in_catalog').length;
-    $('#progress').textContent = `${matching.length} matching · ${catalog} in catalog`;
-    return;
-  }
-  const done = matching.filter(item => item.status === 'done').length;
-  $('#progress').textContent = `${done} of ${matching.length} matching completed`;
+  $('#progress').textContent = `${visibleItems().length} matching filters`;
 }
 
 function canvasBlob(target) {
