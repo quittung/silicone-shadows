@@ -1304,6 +1304,13 @@ $('#show-all').addEventListener('click', () => {
 window.beforeAppLogout = releaseCurrentClaim;
 
 window.addEventListener('keydown', event => {
+  const toolShortcut = {a: 'add', e: 'erase', r: 'remask', w: 'length'}[event.key.toLowerCase()];
+  if (toolShortcut && !event.ctrlKey && !event.metaKey && !event.altKey &&
+      !event.target.matches('input:not([type="range"]), select, textarea, [contenteditable]')) {
+    setTool(toolShortcut);
+    event.preventDefault();
+    return;
+  }
   if (event.target.matches('input, select')) return;
   if (event.ctrlKey && event.key.toLowerCase() === 'z') { $('#undo').click(); event.preventDefault(); return; }
   if (event.code === 'Space') {
@@ -1311,11 +1318,7 @@ window.addEventListener('keydown', event => {
     event.preventDefault();
     return;
   }
-  if (event.key === 'a') setTool('add');
-  else if (event.key === 'e') setTool('erase');
-  else if (event.key === 'r') setTool('remask');
-  else if (event.key === 'w') setTool('length');
-  else if (event.key === '1') $$('.rating button')[0].click();
+  if (event.key === '1') $$('.rating button')[0].click();
   else if (event.key === '2') $$('.rating button')[1].click();
   else if (event.key === '3') $$('.rating button')[2].click();
   else if (event.key === 'ArrowLeft') navigate(-1);
