@@ -273,6 +273,7 @@ function showEmptyState(title, message) {
     ? 'All products matching these catalog filters have been reviewed.'
     : 'Change or clear the filters to continue.');
   $('#empty-state').classList.add('visible');
+  $('#source-unavailable').classList.remove('visible');
   $('#filename').textContent = title || defaultTitle;
   sourceImage = null;
   rembgImage = null;
@@ -317,6 +318,7 @@ async function showPublishedItem(item) {
   setEditorDisabled(true);
   setSidebarMode('read-only');
   $('#published-state').classList.add('visible');
+  $('#source-unavailable').classList.remove('visible');
   const source = item.provenance === 'alternative' ? 'alternative image' :
     item.provenance === 'mixed' ? 'mixed image sources' : 'catalog image';
   const stage = item.pending_review ? 'Pending review' : 'In catalog';
@@ -389,7 +391,7 @@ function configureOffscreen(width, height) {
   }
 }
 
-async function loadItem(itemId, urlMode = 'replace') {
+async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = false) {
   clearTimeout(autosaveTimer);
   if (hostedMode && current && current.id !== itemId) await releaseCurrentClaim();
   $('#empty-state').classList.remove('visible');
@@ -401,16 +403,44 @@ async function loadItem(itemId, urlMode = 'replace') {
     return;
   }
   $('#published-state').classList.remove('visible');
+  $('#source-unavailable').classList.remove('visible');
   setEditorDisabled(false);
   setSidebarMode('edit');
   $('#rereview').hidden = true;
   $('#edit-metadata').hidden = true;
+  $('#load-insecure').hidden = true;
+  $('#load-insecure').disabled = allowInvalidCertificate;
+  $('#load-insecure').textContent = allowInvalidCertificate ? 'Loading image…' : 'Load image anyway';
   $('#view-hint').textContent = 'Wheel zoom · middle drag pans';
   $('#loading').textContent = 'Preparing mask…';
   $('#loading').classList.add('visible');
   setStatus('');
   try {
-    const details = await api(`/api/items/${encodeURIComponent(itemId)}/prepare`, { method: 'POST' });
+    const insecure = allowInvalidCertificate ? '?allow_invalid_certificate=true' : '';
+    const details = await api(`/api/items/${encodeURIComponent(itemId)}/prepare${insecure}`, { method: 'POST' });
+    if (details.source_unavailable) {
+      current = listed;
+      if (hostedMode) {
+        current.last_opened_at = Date.now() / 1000;
+        startClaimHeartbeat(itemId);
+      }
+      state = sourceImage = rembgImage = null;
+      setItemTitle(current);
+      setEditorDisabled(true);
+      $('#source-info').textContent = 'Drop or paste an image onto the canvas.';
+      $('#source-unavailable-message').textContent = details.certificate_error
+        ? "The source site's certificate couldn't be verified."
+        : 'The image could not be retrieved from the source site.';
+      $('#load-insecure').hidden = !details.certificate_error;
+      $('#source-unavailable').classList.add('visible');
+      $('#reset-catalog').hidden = true;
+      $('#view-hint').textContent = 'Paste or drop an image to continue';
+      setStatus('');
+      render();
+      await syncPrefetch([], itemId);
+      updateEditorUrl(urlMode, itemId);
+      return;
+    }
     const images = [loadImage(details.source_url), loadImage(details.rembg_url)];
     if (details.edits_url) images.push(loadImage(details.edits_url));
     const loaded = await Promise.all(images);
@@ -461,6 +491,8 @@ async function loadItem(itemId, urlMode = 'replace') {
     }
     setStatus(error.message, true);
   } finally {
+    $('#load-insecure').disabled = false;
+    $('#load-insecure').textContent = 'Load image anyway';
     $('#loading').classList.remove('visible');
   }
 }
@@ -1220,14 +1252,20 @@ $('#clear-line').addEventListener('click', () => {
   updateLineInfo(); render(); markDirty();
 });
 $('#fit').addEventListener('click', fitView);
-$('#search-images').addEventListener('click', () => {
+function searchImages() {
   const product = current?.products?.[0];
   if (!product) return setStatus('No catalog product is selected', true);
   const query = `${product.n} ${product.vn}`.trim();
   window.open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`, '_blank', 'noopener');
-});
+}
+$('#search-images').addEventListener('click', searchImages);
+$('#unavailable-search-images').addEventListener('click', searchImages);
 $('#open-product').addEventListener('click', event => {
   window.open(event.currentTarget.dataset.url, '_blank', 'noopener');
+});
+$('#load-insecure').addEventListener('click', async () => {
+  if (!current) return;
+  await loadItem(current.id, 'none', true);
 });
 $('#reset-catalog').addEventListener('click', resetToCatalog);
 $('#rereview').addEventListener('click', rereview);

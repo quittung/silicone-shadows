@@ -32,6 +32,7 @@ from ..workspace import (
     ALLOWED_IMAGE_FORMATS,
     MAX_IMAGE_BYTES,
     MAX_IMAGE_PIXELS,
+    CatalogImageUnavailable,
     Workspace,
 )
 
@@ -423,7 +424,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         return Response(status_code=204)
 
     @app.post("/api/items/{item_id}/prepare")
-    def prepare_item(item_id: str, request: Request) -> dict:
+    def prepare_item(
+        item_id: str, request: Request, allow_invalid_certificate: bool = False
+    ) -> dict:
         claim_expires_at = None
         if store and store.submission(item_id):
             raise HTTPException(status_code=409, detail="item is pending review")
@@ -440,7 +443,17 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             workspace.select_prefetch(request.state.user.id, [item_id])
         else:
             workspace.set_active(item_id)
-        paths, width, height = workspace.prepare(item_id)
+        try:
+            paths, width, height = workspace.prepare(
+                item_id, allow_invalid_certificate
+            )
+        except CatalogImageUnavailable as error:
+            return {
+                "id": item_id,
+                "source_unavailable": True,
+                "certificate_error": error.certificate_error,
+                "claim_expires_at": claim_expires_at,
+            }
         encoded_id = quote(item_id, safe="")
         return {
             "id": item_id,
@@ -549,7 +562,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             require_claim(item_id, request.state.user)
         else:
             workspace.set_active(item_id)
-        workspace.source_for(item_id)
+        workspace.require_item(item_id)
         try:
             data = await image.read(MAX_IMAGE_BYTES + 1)
         finally:

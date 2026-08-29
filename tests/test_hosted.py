@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import ssl
 import sys
 import tempfile
 import types
@@ -8,6 +10,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 from pathlib import Path
+from urllib.error import URLError
 from unittest.mock import patch
 
 import numpy as np
@@ -115,6 +118,44 @@ class HostedAppTest(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         return response.headers["x-archive-token"]
+
+    def test_unavailable_catalog_image_keeps_claim_for_manual_replacement(self) -> None:
+        (self.input_dir / "sample.jpg").unlink()
+        shutil.rmtree(self.work_dir / "sample")
+        workspace = self.app.state.workspace
+        workspace.image_base_url = "https://images.example/"
+        alice = self.login("Alice")
+        certificate_error = ssl.SSLCertVerificationError(
+            ssl.SSL_ERROR_SSL, "certificate has expired"
+        )
+
+        with patch(
+            "server.workspace.urlopen", side_effect=URLError(certificate_error)
+        ):
+            prepared = alice.post("/api/items/sample/prepare")
+
+        self.assertEqual(prepared.status_code, 200, prepared.text)
+        self.assertTrue(prepared.json()["source_unavailable"])
+        self.assertTrue(prepared.json()["certificate_error"])
+        self.assertIsNotNone(prepared.json()["claim_expires_at"])
+        self.assertEqual(self.store.claims()["sample"]["name"], "Alice")
+
+        fake_rembg = types.ModuleType("rembg")
+        fake_rembg.new_session = lambda: object()
+        fake_rembg.remove = lambda data, session: data
+        with patch.dict(sys.modules, {"rembg": fake_rembg}):
+            alternative = alice.post(
+                "/api/items/sample/alternative",
+                files={
+                    "image": (
+                        "manual.png",
+                        png_bytes(Image.new("RGBA", (12, 10), "white")),
+                        "image/png",
+                    )
+                },
+            )
+        self.assertEqual(alternative.status_code, 200, alternative.text)
+        self.assertTrue(alternative.json()["item"]["has_alternative"])
 
     def test_invites_claims_submission_and_approval(self) -> None:
         anonymous = TestClient(self.app)

@@ -3,6 +3,7 @@
 import json
 import re
 import ssl
+import sys
 import unicodedata
 from pathlib import Path
 from urllib.parse import urlparse
@@ -26,6 +27,17 @@ def ssl_context_for(url: str):
     return context
 
 
+def validate_catalog(data: bytes) -> None:
+    if len(data) > MAX_CATALOG_BYTES:
+        raise ValueError("catalog is too large")
+    try:
+        catalog = json.loads(data)
+    except json.JSONDecodeError as error:
+        raise ValueError("downloaded catalog is not JSON") from error
+    if not isinstance(catalog, list):
+        raise ValueError("downloaded catalog is not a product list")
+
+
 def ensure_catalog(config_path: Path) -> Path:
     config_path = config_path.resolve()
     config = json.loads(config_path.read_text())
@@ -38,19 +50,36 @@ def ensure_catalog(config_path: Path) -> Path:
     if cache.exists():
         return cache
 
-    request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
-    with urlopen(request, timeout=30, context=ssl_context_for(url)) as response:
-        if urlparse(response.geturl()).hostname != urlparse(url).hostname:
-            raise ValueError("catalog redirected to another host")
-        data = response.read(MAX_CATALOG_BYTES + 1)
-    if len(data) > MAX_CATALOG_BYTES:
-        raise ValueError("catalog is too large")
     try:
-        catalog = json.loads(data)
-    except json.JSONDecodeError as error:
-        raise ValueError("downloaded catalog is not JSON") from error
-    if not isinstance(catalog, list):
-        raise ValueError("downloaded catalog is not a product list")
+        request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
+        with urlopen(request, timeout=30, context=ssl_context_for(url)) as response:
+            if urlparse(response.geturl()).hostname != urlparse(url).hostname:
+                raise ValueError("catalog redirected to another host")
+            data = response.read(MAX_CATALOG_BYTES + 1)
+        validate_catalog(data)
+    except (OSError, ValueError) as error:
+        fallbacks = sorted(
+            (
+                path
+                for path in cache.parent.glob("products_v*.json")
+                if path.stem.removeprefix("products_v").isdigit()
+            ),
+            key=lambda path: int(path.stem.removeprefix("products_v")),
+            reverse=True,
+        )
+        for fallback in fallbacks:
+            try:
+                validate_catalog(fallback.read_bytes())
+            except (OSError, ValueError):
+                continue
+            print(
+                f"WARNING: Catalog v{version} unavailable ({error}); "
+                f"using cached {fallback.name}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return fallback
+        raise
     atomic_bytes(cache, data)
     print(f"Downloaded catalog v{version}: {cache}")
     return cache

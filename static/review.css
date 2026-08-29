@@ -70,6 +70,31 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 310px; grid-template
   border: 1px solid var(--border); border-radius: 7px; background: rgb(26 31 37 / 92%);
   color: var(--muted);
 }
+#source-unavailable {
+  position: absolute; inset: 0; display: none; place-items: center;
+  padding: 2rem; text-align: center; background: rgb(17 20 24 / 68%);
+}
+#source-unavailable.visible { display: grid; }
+.source-unavailable-card {
+  width: min(29rem, 100%); padding: 1.5rem;
+  border: 1px solid var(--warning); border-radius: 10px;
+  background: rgb(26 31 37 / 96%); box-shadow: 0 .8rem 2rem rgb(0 0 0 / 35%);
+}
+.source-unavailable-icon {
+  width: 2.4rem; height: 2.4rem; margin: 0 auto .65rem; display: grid;
+  place-items: center; border-radius: 50%; color: #111418;
+  background: var(--warning); font-size: 1.4rem; font-weight: 800;
+}
+.source-unavailable-card h2 { margin: 0 0 .35rem; }
+.source-unavailable-card p { margin: 0 0 1rem; color: var(--muted); }
+#load-insecure { width: 100%; padding: .72rem; border-color: var(--warning); font-weight: 700; }
+.source-unavailable-risk { margin-top: .35rem; color: var(--muted); font-size: .78rem; }
+.source-unavailable-or { margin: .9rem 0; color: var(--muted); font-size: .82rem; text-transform: uppercase; }
+.source-drop-hint {
+  padding: 1rem; border: 2px dashed #59636e; border-radius: 8px; font-weight: 650;
+}
+#canvas-wrap.dragging .source-drop-hint { border-color: var(--accent); color: var(--accent); }
+#unavailable-search-images { width: 100%; margin-top: .65rem; }
 #empty-state {
   position: absolute; inset: 0; display: none; place-items: center; text-align: center;
   background: var(--bg); padding: 2rem;
