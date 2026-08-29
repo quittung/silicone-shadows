@@ -23,6 +23,8 @@ let editsDirty = false;
 let metadataDirty = false;
 let strokes = [];
 let activeStroke = null;
+let activeCrop = null;
+let remaskBusy = false;
 let hoverPoint = null;
 let activeLength = null;
 let panning = null;
@@ -426,6 +428,8 @@ async function loadItem(itemId, urlMode = 'replace') {
     initialEditsCanvas.getContext('2d').drawImage(editsCanvas, 0, 0);
     strokes = [];
     activeStroke = null;
+    activeCrop = null;
+    remaskBusy = false;
     activeLength = null;
     editsDirty = false;
     metadataDirty = false;
@@ -702,6 +706,20 @@ function render() {
     ctx.drawImage(maskCanvas, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }
+  if (activeCrop) {
+    const left = Math.min(activeCrop.start[0], activeCrop.end[0]);
+    const top = Math.min(activeCrop.start[1], activeCrop.end[1]);
+    const width = Math.abs(activeCrop.end[0] - activeCrop.start[0]);
+    const height = Math.abs(activeCrop.end[1] - activeCrop.start[1]);
+    ctx.save();
+    ctx.fillStyle = '#22d3ee33';
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2 / view.zoom;
+    ctx.setLineDash([8 / view.zoom, 5 / view.zoom]);
+    ctx.fillRect(left, top, width, height);
+    ctx.strokeRect(left, top, width, height);
+    ctx.restore();
+  }
   drawLength(ctx);
   if (hoverPoint && (tool === 'add' || tool === 'erase')) {
     ctx.save();
@@ -780,7 +798,24 @@ function paintSegment(from, to, mode, size) {
   targetCtx.restore();
 }
 
+function paintRemaskCrop(stroke) {
+  const target = editsCanvas.getContext('2d');
+  const edits = target.getImageData(stroke.left, stroke.top, stroke.width, stroke.height);
+  for (let pixel = 0; pixel < stroke.mask.length; pixel++) {
+    if (!stroke.mask[pixel]) continue;
+    const index = pixel * 4;
+    edits.data[index] = edits.data[index + 1] = edits.data[index + 2] = 255;
+    edits.data[index + 3] = 255;
+  }
+  target.putImageData(edits, stroke.left, stroke.top);
+}
+
 function drawStroke(stroke, live = true) {
+  if (stroke.mask) {
+    paintRemaskCrop(stroke);
+    if (live) recomputeMask();
+    return;
+  }
   for (let i = 1; i < stroke.points.length; i++) {
     const from = stroke.points[i - 1];
     const to = stroke.points[i];
@@ -792,7 +827,7 @@ function drawStroke(stroke, live = true) {
 function updateCanvasCursor() {
   canvas.style.cursor = panning ? 'grabbing' :
     current?.read_only ? 'grab' :
-      tool === 'length' ? 'crosshair' : hoverPoint ? 'none' : 'default';
+      tool === 'length' || tool === 'remask' ? 'crosshair' : hoverPoint ? 'none' : 'default';
 }
 
 function setTool(nextTool) {
@@ -819,6 +854,53 @@ function refreshProgressText() {
 
 function canvasBlob(target) {
   return new Promise(resolve => target.toBlob(resolve, 'image/png'));
+}
+
+async function remaskCrop(box) {
+  if (remaskBusy || !current) return;
+  const itemId = current.id;
+  remaskBusy = true;
+  setStatus('Remasking crop…');
+  const form = new FormData();
+  for (const [name, value] of Object.entries(box)) form.append(name, value);
+  try {
+    const response = await fetch(
+      `/api/items/${encodeURIComponent(itemId)}/remask-crop`,
+      {method: 'POST', body: form},
+    );
+    if (!response.ok) throw await responseError(response);
+    const prediction = await createImageBitmap(await response.blob());
+    if (current?.id !== itemId) return prediction.close();
+    const width = box.right - box.left;
+    const height = box.bottom - box.top;
+    if (prediction.width !== width || prediction.height !== height) {
+      prediction.close();
+      throw new Error('Remasked crop dimensions do not match');
+    }
+    const cropped = offscreen();
+    cropped.width = width;
+    cropped.height = height;
+    const croppedContext = cropped.getContext('2d');
+    croppedContext.drawImage(prediction, 0, 0);
+    prediction.close();
+    const alpha = croppedContext.getImageData(0, 0, width, height).data;
+    const threshold = Number($('#threshold').value);
+    const mask = new Uint8Array(width * height);
+    for (let pixel = 0; pixel < mask.length; pixel++) {
+      mask[pixel] = Number(alpha[pixel * 4 + 3] >= threshold);
+    }
+    if (!mask.some(Boolean)) return setStatus('rembg found no foreground in that crop', true);
+    const stroke = {left: box.left, top: box.top, width, height, mask};
+    strokes.push(stroke);
+    drawStroke(stroke);
+    render();
+    markDirty(true);
+    setStatus('Crop mask added');
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    remaskBusy = false;
+  }
 }
 
 async function performSave(status) {
@@ -963,6 +1045,12 @@ canvas.addEventListener('pointerdown', event => {
     return;
   }
   const point = imagePoint(event);
+  if (tool === 'remask') {
+    if (!inside(point) || remaskBusy) return;
+    activeCrop = {start: point, end: point};
+    render();
+    return;
+  }
   if (tool === 'length') {
     if (!inside(point)) return;
     activeLength = { start: point, end: point };
@@ -988,6 +1076,14 @@ canvas.addEventListener('pointermove', event => {
   if (panning) {
     view.x = panning.ox + event.clientX - panning.x;
     view.y = panning.oy + event.clientY - panning.y;
+    render();
+    return;
+  }
+  if (activeCrop) {
+    activeCrop.end = [
+      Math.max(0, Math.min(sourceImage.naturalWidth, pointer[0])),
+      Math.max(0, Math.min(sourceImage.naturalHeight, pointer[1])),
+    ];
     render();
     return;
   }
@@ -1019,6 +1115,19 @@ function finishPointer(cancelled = false) {
     activeStroke = null;
     render();
     markDirty(true);
+  }
+  if (activeCrop) {
+    const box = {
+      left: Math.max(0, Math.floor(Math.min(activeCrop.start[0], activeCrop.end[0]))),
+      top: Math.max(0, Math.floor(Math.min(activeCrop.start[1], activeCrop.end[1]))),
+      right: Math.min(sourceImage.naturalWidth, Math.ceil(Math.max(activeCrop.start[0], activeCrop.end[0]))),
+      bottom: Math.min(sourceImage.naturalHeight, Math.ceil(Math.max(activeCrop.start[1], activeCrop.end[1]))),
+    };
+    activeCrop = null;
+    render();
+    if (!cancelled && box.right - box.left >= 4 && box.bottom - box.top >= 4) {
+      remaskCrop(box);
+    }
   }
   if (activeLength) {
     const length = Math.hypot(
@@ -1204,6 +1313,7 @@ window.addEventListener('keydown', event => {
   }
   if (event.key === 'a') setTool('add');
   else if (event.key === 'e') setTool('erase');
+  else if (event.key === 'r') setTool('remask');
   else if (event.key === 'w') setTool('length');
   else if (event.key === '1') $$('.rating button')[0].click();
   else if (event.key === '2') $$('.rating button')[1].click();

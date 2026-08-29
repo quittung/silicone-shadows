@@ -369,6 +369,45 @@ class ReviewAppTest(unittest.TestCase):
                         400,
                     )
 
+    def test_remask_crop_uses_normalized_source_region(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_dir = root / "in"
+            work_dir = root / "work"
+            item_dir = work_dir / "sample"
+            input_dir.mkdir()
+            item_dir.mkdir(parents=True)
+            source = Image.new("RGB", (32, 24), "white")
+            source.paste((20, 40, 60), (7, 5, 18, 14))
+            source.save(input_dir / "sample.png")
+            source.save(item_dir / "source.png")
+            source.convert("RGBA").save(item_dir / "rembg.png")
+            calls = []
+            app = create_app(input_dir, work_dir)
+
+            def fake_remove(data):
+                with Image.open(BytesIO(data)) as crop:
+                    calls.append((crop.size, crop.getpixel((0, 0))))
+                    result = crop.convert("RGBA")
+                result.putalpha(Image.new("L", result.size, 255))
+                return png_bytes(result)
+
+            app.state.workspace.remove_background = fake_remove
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/items/sample/remask-crop",
+                    data={"left": 7, "top": 5, "right": 18, "bottom": 14},
+                )
+                self.assertEqual(response.status_code, 200, response.text)
+                with Image.open(BytesIO(response.content)) as result:
+                    self.assertEqual(result.size, (11, 9))
+                self.assertEqual(calls, [((11, 9), (20, 40, 60))])
+                invalid = client.post(
+                    "/api/items/sample/remask-crop",
+                    data={"left": -1, "top": 5, "right": 18, "bottom": 14},
+                )
+                self.assertEqual(invalid.status_code, 400)
+
     def test_review_export_and_unusable_fast_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

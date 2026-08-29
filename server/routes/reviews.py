@@ -457,6 +457,32 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             ),
         }
 
+    @app.post("/api/items/{item_id}/remask-crop")
+    def remask_crop(
+        item_id: str,
+        request: Request,
+        left: int = Form(...),
+        top: int = Form(...),
+        right: int = Form(...),
+        bottom: int = Form(...),
+    ) -> Response:
+        if store:
+            require_claim(item_id, request.state.user)
+        else:
+            workspace.set_active(item_id)
+        paths, width, height = workspace.prepare(item_id)
+        if not (0 <= left < right <= width and 0 <= top < bottom <= height):
+            raise HTTPException(status_code=400, detail="crop is outside the image")
+        with Image.open(paths["source"]) as image:
+            crop = image.convert("RGB").crop((left, top, right, bottom))
+        data = BytesIO()
+        crop.save(data, format="PNG")
+        return Response(
+            workspace.remove_background(data.getvalue()),
+            media_type="image/png",
+            headers={"Cache-Control": "no-store"},
+        )
+
     @app.post("/api/items/{item_id}/rereview")
     def rereview_item(item_id: str, request: Request) -> dict:
         if store and store.submission(item_id):
