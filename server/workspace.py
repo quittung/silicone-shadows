@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import threading
 from io import BytesIO
 from pathlib import Path
@@ -34,6 +35,14 @@ PREFETCH_CACHE_LIMIT = 50
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
 MAX_IMAGE_PIXELS = 25_000_000
 ALLOWED_IMAGE_FORMATS = {"BMP", "JPEG", "PNG", "TIFF", "WEBP"}
+
+
+class CatalogImageUnavailable(Exception):
+    def __init__(self, error: Exception):
+        super().__init__(str(error))
+        self.certificate_error = isinstance(
+            getattr(error, "reason", error), ssl.SSLCertVerificationError
+        )
 
 
 class Workspace:
@@ -343,7 +352,9 @@ class Workspace:
         items.update(self.sources())
         return items
 
-    def download_source(self, item_id: str) -> Path:
+    def download_source(
+        self, item_id: str, allow_invalid_certificate: bool = False
+    ) -> Path:
         try:
             target = self.catalog_sources[item_id]
             pic = self.catalog_pics[item_id]
@@ -357,22 +368,30 @@ class Workspace:
         with self._download_lock:
             if target.exists():
                 return target
-            url = urljoin(self.image_base_url.rstrip("/") + "/", pic.lstrip("/"))
-            base_host = urlparse(self.image_base_url).hostname
-            if urlparse(url).scheme != "https" or urlparse(url).hostname != base_host:
-                raise ValueError(f"unsafe catalog image URL: {url}")
-            request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
-            with urlopen(
-                request, timeout=30, context=self._image_ssl_context
-            ) as response:
-                if urlparse(response.geturl()).hostname != base_host:
-                    raise ValueError("catalog image redirected to another host")
-                data = response.read(MAX_IMAGE_BYTES + 1)
-            if len(data) > MAX_IMAGE_BYTES:
-                raise ValueError(
-                    f"catalog image is larger than {MAX_IMAGE_BYTES} bytes"
-                )
             try:
+                url = urljoin(
+                    self.image_base_url.rstrip("/") + "/", pic.lstrip("/")
+                )
+                base_host = urlparse(self.image_base_url).hostname
+                if (
+                    urlparse(url).scheme != "https"
+                    or urlparse(url).hostname != base_host
+                ):
+                    raise ValueError(f"unsafe catalog image URL: {url}")
+                request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
+                context = self._image_ssl_context
+                if allow_invalid_certificate:
+                    context = ssl.create_default_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                with urlopen(request, timeout=30, context=context) as response:
+                    if urlparse(response.geturl()).hostname != base_host:
+                        raise ValueError("catalog image redirected to another host")
+                    data = response.read(MAX_IMAGE_BYTES + 1)
+                if len(data) > MAX_IMAGE_BYTES:
+                    raise ValueError(
+                        f"catalog image is larger than {MAX_IMAGE_BYTES} bytes"
+                    )
                 with Image.open(BytesIO(data)) as image:
                     if image.format not in ALLOWED_IMAGE_FORMATS:
                         raise ValueError(
@@ -381,22 +400,28 @@ class Workspace:
                     if image.width * image.height > MAX_IMAGE_PIXELS:
                         raise ValueError(f"downloaded image has too many pixels: {url}")
                     image.verify()
-            except OSError as error:
-                raise ValueError(f"downloaded file is not an image: {url}") from error
+            except (OSError, ValueError) as error:
+                raise CatalogImageUnavailable(error) from error
             atomic_bytes(target, data)
             print(f"Downloaded image: {item_id}", flush=True)
         return target
 
-    def source_for(self, item_id: str) -> Path:
+    def source_for(
+        self, item_id: str, allow_invalid_certificate: bool = False
+    ) -> Path:
         self.require_item(item_id)
         alternative = self.paths(item_id)["alternative"]
         if alternative.exists():
             return alternative
         source = self.sources().get(item_id)
-        return source if source else self.download_source(item_id)
+        return source if source else self.download_source(
+            item_id, allow_invalid_certificate
+        )
 
-    def prepare(self, item_id: str) -> tuple[dict[str, Path], int, int]:
-        source = self.source_for(item_id)
+    def prepare(
+        self, item_id: str, allow_invalid_certificate: bool = False
+    ) -> tuple[dict[str, Path], int, int]:
+        source = self.source_for(item_id, allow_invalid_certificate)
         paths = self.paths(item_id)
         paths["directory"].mkdir(parents=True, exist_ok=True)
 

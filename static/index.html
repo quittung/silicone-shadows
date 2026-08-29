@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css?v=20260814-4">
+  <link rel="stylesheet" href="/static/review.css?v=20260829-1">
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
   <link rel="stylesheet" href="/static/nav.css?v=20260822-1">
   <link rel="stylesheet" href="/static/metadata.css">
@@ -90,6 +90,18 @@
         <canvas id="canvas"></canvas>
         <div id="published-state">
           <div id="published-note"></div>
+        </div>
+        <div id="source-unavailable" role="alert">
+          <div class="source-unavailable-card">
+            <div class="source-unavailable-icon" aria-hidden="true">!</div>
+            <h2>Catalog image unavailable</h2>
+            <p id="source-unavailable-message">The source site's certificate couldn't be verified.</p>
+            <button id="load-insecure">Load image anyway</button>
+            <div class="source-unavailable-risk">Skips certificate verification for this download.</div>
+            <div class="source-unavailable-or">or</div>
+            <div class="source-drop-hint">Paste or drop an image here</div>
+            <button id="unavailable-search-images">Search for another image</button>
+          </div>
         </div>
         <div id="loading">Preparing mask…</div>
         <div id="empty-state">
@@ -198,6 +210,6 @@
   <script src="/static/nav.js?v=20260822-2"></script>
   <script src="/static/metadata.js"></script>
   <script src="/static/review-url.js?v=20260823-1"></script>
-  <script src="/static/review.js?v=20260829-2"></script>
+  <script src="/static/review.js?v=20260829-3"></script>
 </body>
 </html>

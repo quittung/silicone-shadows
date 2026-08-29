@@ -112,6 +112,92 @@ class ReviewAppTest(unittest.TestCase):
                 self.assertEqual(ensure_catalog(descriptor), catalog_path)
                 self.assertEqual(download.call_count, 1)
 
+    def test_catalog_source_falls_back_to_latest_valid_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            descriptor = root / "catalog_source.json"
+            descriptor.write_text(
+                json.dumps(
+                    {
+                        "version": 8,
+                        "url_template": "https://catalog.example/products_v{version}.json",
+                    }
+                )
+            )
+            cache = root / ".local/catalog"
+            cache.mkdir(parents=True)
+            (cache / "products_v6.json").write_text("not json")
+            fallback = cache / "products_v7.json"
+            fallback.write_text('[{"id": 1}]')
+
+            with patch("server.catalog.urlopen", side_effect=OSError("offline")):
+                self.assertEqual(ensure_catalog(descriptor), fallback)
+
+    def test_catalog_image_can_load_once_without_certificate_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_dir = root / "in"
+            input_dir.mkdir()
+            catalog = root / "products.json"
+            catalog.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": 1,
+                            "n": "Remote",
+                            "vn": "Vendor",
+                            "pt": "Type",
+                            "pic": "images/remote.png",
+                        }
+                    ]
+                )
+            )
+            image_data = png_bytes(Image.new("RGBA", (12, 10), "white"))
+            contexts = []
+
+            class Response:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    return None
+
+                def geturl(self):
+                    return "https://images.example/images/remote.png"
+
+                def read(self, _size=-1):
+                    return image_data
+
+            def download(_request, *, context, **_kwargs):
+                contexts.append(context)
+                return Response()
+
+            fake_rembg = types.ModuleType("rembg")
+            fake_rembg.new_session = lambda: object()
+            fake_rembg.remove = lambda data, session: data
+            app = create_app(
+                input_dir,
+                root / "work",
+                catalog,
+                "https://images.example/",
+            )
+            client = TestClient(app)
+            try:
+                with (
+                    patch("server.workspace.urlopen", side_effect=download),
+                    patch.dict(sys.modules, {"rembg": fake_rembg}),
+                ):
+                    response = client.post(
+                        "/api/items/remote/prepare?allow_invalid_certificate=true"
+                    )
+            finally:
+                client.close()
+
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertFalse(response.json().get("source_unavailable", False))
+            self.assertEqual(contexts[0].verify_mode, ssl.CERT_NONE)
+            self.assertFalse(contexts[0].check_hostname)
+
     def test_independent_products_are_available_for_comparison(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
