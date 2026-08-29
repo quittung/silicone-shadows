@@ -38,11 +38,10 @@ catalog or its images.
 ## Using the dataset
 
 Attribution is not required under CC0. If Silicone Shadows is useful to you, a
-shout-out or link back to [this repository](https://github.com/quittung/silicone-shadows)
-would be greatly appreciated.
-
-If you publish a project that uses the dataset, I'd love to see it—send a link
-to [shadows@qtng.dev](mailto:shadows@qtng.dev).
+link back to [this repo](https://github.com/quittung/silicone-shadows) would be
+greatly appreciated. If you publish a project that uses the dataset, I'd love
+to see it—send a link to
+[shadows@qtng.dev](mailto:shadows@qtng.dev).
 
 ## Quick start
 
