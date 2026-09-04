@@ -81,5 +81,7 @@ draft archive again and verifies it against GitHub's SHA-256 digest, along with
 its manifest version and commit, license, and rights notice. Publication remains
 a manual action on GitHub.
 
-The catalog version is pinned in `catalog_source.json`; updating its `version`
-makes the app download the corresponding catalog.
+Check the pinned catalog against the latest upstream version with
+`.venv/bin/python admin/update_catalog.py`. Add `--update` to update
+`catalog_source.json` and commit that file; pushing and deployment remain
+separate steps.

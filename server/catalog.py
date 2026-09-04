@@ -38,6 +38,16 @@ def validate_catalog(data: bytes) -> None:
         raise ValueError("downloaded catalog is not a product list")
 
 
+def download_catalog(url: str) -> bytes:
+    request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
+    with urlopen(request, timeout=30, context=ssl_context_for(url)) as response:
+        if urlparse(response.geturl()).hostname != urlparse(url).hostname:
+            raise ValueError("catalog redirected to another host")
+        data = response.read(MAX_CATALOG_BYTES + 1)
+    validate_catalog(data)
+    return data
+
+
 def ensure_catalog(config_path: Path) -> Path:
     config_path = config_path.resolve()
     config = json.loads(config_path.read_text())
@@ -51,12 +61,7 @@ def ensure_catalog(config_path: Path) -> Path:
         return cache
 
     try:
-        request = Request(url, headers={"User-Agent": "Batch Outliner/1.0"})
-        with urlopen(request, timeout=30, context=ssl_context_for(url)) as response:
-            if urlparse(response.geturl()).hostname != urlparse(url).hostname:
-                raise ValueError("catalog redirected to another host")
-            data = response.read(MAX_CATALOG_BYTES + 1)
-        validate_catalog(data)
+        data = download_catalog(url)
     except (OSError, ValueError) as error:
         fallbacks = sorted(
             (
