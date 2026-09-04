@@ -1,5 +1,5 @@
 {
   "provider": "fantasytoybox",
-  "version": 231,
+  "version": 234,
   "url_template": "https://fantasytoybox.net/data/products_v{version}.json"
 }
