@@ -11,6 +11,7 @@
     header { position:sticky; top:0; z-index:2; }
     main { max-width:1400px; margin:auto; padding:1.2rem; }
     h1 { margin:.2rem 0 1rem; font-size:1.55rem; }
+    h1 span { color:var(--muted); font-size:.85rem; font-weight:400; }
     h2 { margin:1.5rem 0 .7rem; font-size:1.15rem; }
     .title-row { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:1rem; }
     .title-row h1 { margin:0; }
@@ -63,7 +64,7 @@
   </header>
   <main>
     <div class="title-row">
-      <h1>Catalog progress</h1>
+      <h1>Catalog progress <span id="catalog-version" hidden></span></h1>
       <label class="measurement-filter">
         <input id="measured-only" type="checkbox" disabled>
         Only products with at least one measurement
@@ -172,6 +173,10 @@
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
         const data = await response.json();
         const summary = data.summary;
+        if (data.catalog_version !== null) {
+          $('#catalog-version').textContent = `· Toybox v${data.catalog_version}`;
+          $('#catalog-version').hidden = false;
+        }
         document.querySelectorAll('.catalog-total').forEach(target => {
           target.textContent = `${summary.products} products`;
         });

@@ -31,7 +31,7 @@ class ReviewAppTest(unittest.TestCase):
             root = Path(temp_dir)
             input_dir = root / "in"
             input_dir.mkdir()
-            catalog = root / "products.json"
+            catalog = root / "products_v235.json"
             catalog.write_text(
                 json.dumps(
                     [
@@ -57,6 +57,7 @@ class ReviewAppTest(unittest.TestCase):
             )
 
             with TestClient(create_app(input_dir, root / "work", catalog)) as client:
+                self.assertEqual(client.get("/api/stats").json()["catalog_version"], 235)
                 self.assertEqual(
                     client.get("/api/stats").json()["summary"]["products"], 4
                 )

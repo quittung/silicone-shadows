@@ -219,6 +219,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             ),
         }
         return {
+            "catalog_version": workspace.catalog_version,
             "summary": summary,
             "vendors": workspace.breakdown(records, "vn"),
             "product_types": workspace.breakdown(records, "pt"),

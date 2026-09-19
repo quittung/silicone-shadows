@@ -74,6 +74,12 @@ class Workspace:
             self.pending_dir.mkdir(parents=True, exist_ok=True)
 
         path = products_path.resolve() if products_path else None
+        version = (
+            path.stem.removeprefix("products_v")
+            if path and path.stem.startswith("products_v")
+            else ""
+        )
+        self.catalog_version = int(version) if version.isdigit() else None
         self.catalog = json.loads(path.read_text()) if path else []
         if not isinstance(self.catalog, list):
             raise ValueError("product catalog must contain a JSON list")
