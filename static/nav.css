@@ -32,3 +32,36 @@
   [data-app-nav] nav { padding-right: .35rem; }
   [data-app-nav] nav a { display: inline-flex; align-items: center; min-height: 40px; white-space: nowrap; }
 }
+
+[data-app-nav] .nav-catalog {
+  flex: none; display: inline-flex; align-items: center; gap: .3rem;
+  width: auto; padding: .4rem .45rem; border: 1px solid transparent; border-radius: 5px;
+  color: var(--muted); background: transparent; font: inherit; font-size: .8rem;
+  font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer;
+}
+[data-app-nav] .nav-catalog[hidden] { display: none; }
+[data-app-nav] .nav-catalog:hover { color: var(--text); background: #28313a; }
+[data-app-nav] .nav-catalog:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[data-app-nav] .catalog-new::after {
+  content: ''; width: .35rem; height: .35rem; border-radius: 50%; background: var(--accent);
+}
+.catalog-dialog {
+  width: min(360px, calc(100vw - 2rem)); box-sizing: border-box;
+  color: var(--text); background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1rem; font: inherit;
+}
+.catalog-dialog::backdrop { background: rgb(17 20 24 / 72%); }
+.catalog-dialog h2 { margin: 0 0 .7rem; font-size: 1.15rem; }
+.catalog-dialog p { margin: 0 0 .7rem; }
+.catalog-dialog .catalog-note { color: var(--muted); font-size: .85rem; }
+.catalog-dialog div { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+.catalog-dialog button {
+  width: auto; font: inherit; cursor: pointer; padding: .48rem .7rem;
+  color: var(--text); background: #252c34; border: 1px solid var(--border); border-radius: 6px;
+}
+.catalog-dialog button:hover:not(:disabled) { border-color: var(--accent); background: #263943; }
+.catalog-dialog button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.catalog-dialog [data-catalog-update] { border-color: var(--accent); }
+.catalog-dialog [data-catalog-error] { color: var(--danger, var(--bad, #fb7185)); overflow-wrap: anywhere; }
+.catalog-dialog [data-catalog-error]:empty { display: none; }
+.catalog-dialog button:disabled { opacity: .45; cursor: default; }

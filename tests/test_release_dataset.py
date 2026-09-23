@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -111,6 +112,63 @@ class ReleaseDatasetTest(unittest.TestCase):
             with patch("admin.release_dataset.check_state") as check_state:
                 release_dataset.main()
         check_state.assert_called_once_with(True)
+
+    def test_catalog_only_hosted_sync_commits_pin_and_builds_matching_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Test")
+            git("config", "user.email", "test@example.test")
+            config = {"provider": "fantasytoybox", "version": 7,
+                      "url_template": "https://example.test/v{version}.json"}
+            (root / "catalog_source.json").write_text(json.dumps(config))
+            record = root / "dataset" / "vendor" / "type" / "name" / "metadata.json"
+            record.parent.mkdir(parents=True)
+            record.write_text(json.dumps({"schema_version": 1, "catalog_id": 1,
+                                          "quality": "unusable", "source": "catalog"}))
+            git("add", ".")
+            git("commit", "-qm", "Initial")
+            run = subprocess.run
+            def local_run(command, **kwargs):
+                if command[0] == "rsync":
+                    return subprocess.CompletedProcess(command, 0)
+                return run(command, **kwargs)
+            with (
+                patch.object(release_dataset, "ROOT", root),
+                patch.object(release_dataset, "read_hosted_catalog", return_value={**config, "version": 8}),
+                patch.object(release_dataset, "hosted_dataset_source", return_value="unused"),
+                patch.object(release_dataset.subprocess, "run", side_effect=local_run),
+            ):
+                self.assertTrue(release_dataset.sync_hosted_dataset("v1"))
+                self.assertEqual(git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"),
+                                 "catalog_source.json")
+                manifest = release_dataset.build_manifest("v1", release_dataset.dataset_files())
+                self.assertEqual(manifest["catalog"]["version"], 8)
+                self.assertEqual(manifest["catalog"]["url"], "https://example.test/v8.json")
+                self.assertFalse(release_dataset.sync_hosted_dataset("v1"))
+            self.assertEqual(git("status", "--porcelain"), "")
+
+    def test_hosted_catalog_descriptor_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "download"
+            target.mkdir()
+            config = {"provider": "fantasytoybox", "version": 7,
+                      "url_template": "https://example.test/v{version}.json"}
+            (root / "catalog_source.json").write_text(json.dumps(config))
+            with (
+                patch.object(release_dataset, "ROOT", root),
+                patch.object(release_dataset, "hosted_dataset_source", return_value="host:/state/dataset/"),
+                patch.object(release_dataset.subprocess, "run"),
+            ):
+                path = target / "catalog_source.json"
+                path.write_text(json.dumps({**config, "version": 8}))
+                self.assertEqual(release_dataset.read_hosted_catalog(target)["version"], 8)
+                path.write_text(json.dumps({**config, "url_template": "https://other.test/{version}"}))
+                with self.assertRaises(ValueError):
+                    release_dataset.read_hosted_catalog(target)
 
     def test_rejects_non_canonical_outline(self):
         with tempfile.TemporaryDirectory() as directory:

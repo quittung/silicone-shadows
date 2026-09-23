@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from admin import update_catalog
+from server import catalog
 
 
 class UpdateCatalogTest(unittest.TestCase):
@@ -16,7 +17,7 @@ class UpdateCatalogTest(unittest.TestCase):
         }
 
         with patch.object(
-            update_catalog,
+            catalog,
             "fetch",
             side_effect=lambda version, _template, optional=False: catalogs.get(
                 version

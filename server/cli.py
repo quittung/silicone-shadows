@@ -8,6 +8,7 @@ import uvicorn
 
 from .app import create_app
 from .catalog import ensure_catalog
+from .catalog_updates import selected_source
 from .hosted import HostedStore
 
 
@@ -61,8 +62,12 @@ def main() -> None:
         ".local/hosted/work" if args.hosted else ".local/work"
     )
     args.input.mkdir(parents=True, exist_ok=True)
-    if args.products is None:
+    managed_catalog = args.products is None
+    if managed_catalog:
         try:
+            args.catalog_source = selected_source(
+                args.catalog_source, args.work.resolve().parent
+            )
             args.products = ensure_catalog(args.catalog_source)
         except (OSError, ValueError, json.JSONDecodeError) as error:
             parser.error(str(error))
@@ -80,6 +85,7 @@ def main() -> None:
             args.pending if args.hosted else None,
             args.secure_cookies,
             args.trusted_host,
+            args.catalog_source if managed_catalog else None,
         ),
         host=args.host,
         port=args.port,

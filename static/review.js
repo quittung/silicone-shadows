@@ -1340,6 +1340,14 @@ $('#show-all').addEventListener('click', () => {
   applyFilters();
 });
 window.beforeAppLogout = releaseCurrentClaim;
+window.beforeCatalogUpdate = async () => {
+  if (remaskBusy || activeStroke || activeLength || activeCrop ||
+      (hostedMode && current && !current.read_only)) {
+    throw new Error('Finish your current review before updating the catalog.');
+  }
+  if (!hostedMode && (metadataDirty || editsDirty)) await save('pending');
+  await saveChain;
+};
 
 window.addEventListener('keydown', event => {
   const toolShortcut = {a: 'add', e: 'erase', r: 'remask', w: 'length'}[event.key.toLowerCase()];

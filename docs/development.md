@@ -85,3 +85,25 @@ Check the pinned catalog against the latest upstream version with
 `.venv/bin/python admin/update_catalog.py`. Add `--update` to update
 `catalog_source.json` and commit that file; pushing and deployment remain
 separate steps.
+
+The app checks for catalog updates once per day while its server is running.
+Local users and hosted reviewers have a compact **vN** control before the navigation tabs;
+a small accent dot marks an available update. It opens **Check now** and **Update to vN** actions.
+Updating reloads the catalog without restarting the server. Finish the active
+editor review before updating. Updates that would change an unfinished review's
+image or product identity are blocked until that work is completed or discarded.
+Published records remain associated by catalog ID, even when catalog names change.
+
+The selected source and last check live beside the work directory as
+`catalog_source.json` and `catalog-check.json`. With the standard hosted service,
+these are under `/var/lib/silicone-shadows/`. The downloaded catalog is cached in
+`.local/catalog/` under that same state directory. A newer runtime selection
+survives deployment of an older repository pin; a newer repository pin takes
+precedence at startup. Explicit `--products` catalogs do not enable these controls.
+
+`release_dataset.py --sync-hosted` retrieves the hosted catalog selection as well
+as the dataset, validates the provider, and commits `catalog_source.json` alongside
+any dataset changes. Catalog-only updates are included too, and the release
+manifest uses that pin. Sync refuses to downgrade a newer repository pin.
+`--check --sync-hosted` reports the released, local, and hosted catalog versions.
+Deploy this app version before syncing, so the hosted source descriptor exists.

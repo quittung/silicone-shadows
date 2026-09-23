@@ -73,6 +73,21 @@ class Workspace:
                 raise ValueError("hosted mode requires a dataset directory")
             self.pending_dir.mkdir(parents=True, exist_ok=True)
 
+        self.load_catalog(products_path)
+
+        self._rembg_session = None
+        self._image_ssl_context = ssl_context_for(image_base_url or "")
+        self.session_lock = threading.RLock()
+        self._download_lock = threading.Lock()
+        self._cache_lock = threading.Lock()
+        self._active_lock = threading.Lock()
+        self._active_id: str | None = None
+        self._prefetch_ids: dict[int, list[str]] | None = {} if hosted_store else None
+        self._prefetch_wake = threading.Event()
+        self._prefetch_stop = threading.Event()
+        self.public_queue = PublicQueue() if hosted_store else None
+
+    def load_catalog(self, products_path: Path | None) -> None:
         path = products_path.resolve() if products_path else None
         version = (
             path.stem.removeprefix("products_v")
@@ -208,17 +223,19 @@ class Workspace:
                         )
                     )
 
-        self._rembg_session = None
-        self._image_ssl_context = ssl_context_for(image_base_url or "")
-        self.session_lock = threading.RLock()
-        self._download_lock = threading.Lock()
-        self._cache_lock = threading.Lock()
-        self._active_lock = threading.Lock()
-        self._active_id: str | None = None
-        self._prefetch_ids: dict[int, list[str]] | None = {} if hosted_store else None
-        self._prefetch_wake = threading.Event()
-        self._prefetch_stop = threading.Event()
-        self.public_queue = PublicQueue() if hosted_store else None
+        # Published identity survives catalog name/vendor/type changes.
+        if self.dataset_dir:
+            for metadata_path in self.dataset_dir.glob("*/*/*/metadata.json"):
+                record = json.loads(metadata_path.read_text())
+                catalog_id = record.get("catalog_id")
+                if catalog_id is not None:
+                    self.record_paths[catalog_id] = metadata_path.parent
+            for product in self.catalog:
+                key = product["id"]
+                path = self.record_paths[key]
+                metadata = path / "metadata.json"
+                if metadata.exists() and json.loads(metadata.read_text()).get("catalog_id") != key:
+                    self.record_paths[key] = path.with_name(f"{path.name}--{key}")
 
     def paths(self, item_id: str) -> dict[str, Path]:
         try:
@@ -970,7 +987,8 @@ class Workspace:
                         break
                     if self.paths(item_id)["rembg"].exists():
                         continue
-                    self.prepare(item_id)
+                    with self.session_lock:
+                        self.prepare(item_id)
                     print(f"Prefetched mask: {item_id}", flush=True)
             except Exception as error:
                 print(f"Mask prefetch failed: {error}", flush=True)

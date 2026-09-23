@@ -6,6 +6,7 @@ import ssl
 import sys
 import unicodedata
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -93,3 +94,45 @@ def ensure_catalog(config_path: Path) -> Path:
 def slug(value: object) -> str:
     text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "unknown"
+
+
+def fetch(
+    version: int, url_template: str, *, optional: bool = False
+) -> list[dict] | None:
+    try:
+        data = download_catalog(url_template.format(version=version))
+    except HTTPError as error:
+        if optional and error.code == 404:
+            return None
+        raise
+    except ValueError as error:
+        if optional and str(error) in {
+            "downloaded catalog is not JSON",
+            "downloaded catalog is not a product list",
+        }:
+            return None
+        raise
+
+    catalog = json.loads(data)
+    if any(
+        not isinstance(product, dict) or type(product.get("id")) is not int
+        for product in catalog
+    ):
+        raise ValueError(f"catalog v{version} contains a product without an integer ID")
+    if len({product["id"] for product in catalog}) != len(catalog):
+        raise ValueError(f"catalog v{version} contains duplicate product IDs")
+    return catalog
+
+
+def latest_catalog(
+    current: int, url_template: str
+) -> tuple[int, list[dict], list[dict]]:
+    current_catalog = fetch(current, url_template)
+    assert current_catalog is not None
+    latest_version, latest = current, current_catalog
+    while True:
+        version = latest_version + 1
+        candidate = fetch(version, url_template, optional=True)
+        if candidate is None:
+            return latest_version, current_catalog, latest
+        latest_version, latest = version, candidate

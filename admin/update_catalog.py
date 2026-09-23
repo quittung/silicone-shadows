@@ -6,55 +6,15 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from server.catalog import download_catalog  # noqa: E402
+from server.catalog import latest_catalog  # noqa: E402
 
 
 CONFIG = ROOT / "catalog_source.json"
-
-
-def fetch(
-    version: int, url_template: str, *, optional: bool = False
-) -> list[dict] | None:
-    try:
-        data = download_catalog(url_template.format(version=version))
-    except HTTPError as error:
-        if optional and error.code == 404:
-            return None
-        raise
-    except ValueError as error:
-        if optional and str(error) in {
-            "downloaded catalog is not JSON",
-            "downloaded catalog is not a product list",
-        }:
-            return None
-        raise
-
-    catalog = json.loads(data)
-    if any(not isinstance(product, dict) or "id" not in product for product in catalog):
-        raise ValueError(f"catalog v{version} contains a product without an ID")
-    if len({product["id"] for product in catalog}) != len(catalog):
-        raise ValueError(f"catalog v{version} contains duplicate product IDs")
-    return catalog
-
-
-def latest_catalog(
-    current: int, url_template: str
-) -> tuple[int, list[dict], list[dict]]:
-    current_catalog = fetch(current, url_template)
-    assert current_catalog is not None
-    latest_version, latest = current, current_catalog
-    while True:
-        version = latest_version + 1
-        candidate = fetch(version, url_template, optional=True)
-        if candidate is None:
-            return latest_version, current_catalog, latest
-        latest_version, latest = version, candidate
 
 
 def report(

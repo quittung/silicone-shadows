@@ -16,8 +16,8 @@ class NavigationTests(unittest.TestCase):
         for filename, active in pages.items():
             html = (ROOT / "static" / filename).read_text()
             self.assertIn(f'data-app-nav="{active}"', html)
-            self.assertIn('/static/nav.js?v=20260822-2', html)
-            self.assertIn('/static/nav.css?v=20260822-1', html)
+            self.assertIn('/static/nav.js?v=20260923-2', html)
+            self.assertIn('/static/nav.css?v=20260923-2', html)
 
         script = (ROOT / "static" / "nav.js").read_text()
         for path in ("/editor", "/stats", "/compare", "/moderate"):

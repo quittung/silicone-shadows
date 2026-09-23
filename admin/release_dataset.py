@@ -183,8 +183,16 @@ def check_state(include_hosted: bool) -> None:
     report_snapshot("Local", local)
     report_difference(f"Local vs {tag}", released, local)
 
+    local_catalog = json.loads((ROOT / "catalog_source.json").read_text())
+    released_catalog = json.loads(git("show", f"{tag}:catalog_source.json"))
+    print(
+        f"Catalog: release v{released_catalog['version']}; "
+        f"local v{local_catalog['version']}"
+    )
     if include_hosted:
         with TemporaryDirectory() as directory:
+            hosted_catalog = read_hosted_catalog(Path(directory))
+            print(f"Hosted catalog: v{hosted_catalog['version']}")
             hosted_root = Path(directory) / "dataset"
             subprocess.run(
                 [
@@ -229,9 +237,35 @@ def hosted_dataset_source(env_path: Path = ROOT / ".env") -> str:
     return f"{user}@{server}:{HOSTED_DATASET_PATH}/"
 
 
+def read_hosted_catalog(directory: Path) -> dict:
+    target = directory / "catalog_source.json"
+    source = hosted_dataset_source().removesuffix("dataset/") + "catalog_source.json"
+    subprocess.run(
+        ["rsync", "--quiet", source, str(target)], cwd=ROOT, check=True,
+    )
+    catalog = json.loads(target.read_text())
+    local = json.loads((ROOT / "catalog_source.json").read_text())
+    if (
+        not isinstance(catalog, dict)
+        or set(catalog) != set(local)
+        or type(catalog.get("version")) is not int
+        or catalog["version"] <= 0
+        or any(catalog.get(key) != local.get(key) for key in ("provider", "url_template"))
+    ):
+        raise ValueError("hosted catalog source is invalid or uses a different provider")
+    return catalog
+
+
 def sync_hosted_dataset(version: str) -> bool:
     if git("status", "--porcelain"):
         raise RuntimeError("commit or stash existing changes before syncing")
+    with TemporaryDirectory() as directory:
+        catalog = read_hosted_catalog(Path(directory))
+    local_catalog = json.loads((ROOT / "catalog_source.json").read_text())
+    if catalog["version"] < local_catalog["version"]:
+        raise RuntimeError(
+            "hosted catalog is older than the repository pin; update the app before syncing"
+        )
     before_count = sum(path.name == "metadata.json" for path in tracked_dataset_files())
     subprocess.run(
         [
@@ -246,26 +280,40 @@ def sync_hosted_dataset(version: str) -> bool:
         cwd=ROOT,
         check=True,
     )
+    with TemporaryDirectory() as directory:
+        if read_hosted_catalog(Path(directory)) != catalog:
+            raise RuntimeError(
+                "hosted catalog changed during sync; inspect local changes and retry"
+            )
     files = dataset_files()
     build_manifest(version, files)
-    changes = git("status", "--short", "--", "dataset")
+    if catalog != local_catalog:
+        (ROOT / "catalog_source.json").write_text(json.dumps(catalog, indent=2) + "\n")
+    changes = git("status", "--short", "--", "dataset", "catalog_source.json")
     if not changes:
         print("Hosted dataset is already current", flush=True)
         return False
     print(changes, flush=True)
-    subprocess.run(["git", "add", "-A", "--", "dataset"], cwd=ROOT, check=True)
+    subprocess.run(
+        ["git", "add", "-A", "--", "dataset", "catalog_source.json"],
+        cwd=ROOT, check=True,
+    )
     staged = git("diff", "--cached", "--name-only")
     if not staged or any(
-        not path.startswith("dataset/") for path in staged.splitlines()
+        path != "catalog_source.json" and not path.startswith("dataset/")
+        for path in staged.splitlines()
     ):
-        raise RuntimeError("refusing to commit changes outside dataset/")
+        raise RuntimeError(
+            "refusing to commit changes outside dataset/ and catalog_source.json"
+        )
     after_count = sum(path.name == "metadata.json" for path in files)
     added = after_count - before_count
     message = (
         f"Add {added} reviewed silhouettes" if added > 0 else "Sync hosted dataset"
     )
     subprocess.run(
-        ["git", "commit", "-m", message, "--", "dataset"], cwd=ROOT, check=True
+        ["git", "commit", "-m", message, "--", "dataset", "catalog_source.json"],
+        cwd=ROOT, check=True,
     )
     return True
 

@@ -39,6 +39,82 @@
   logout.textContent = 'Log out';
   logout.hidden = true;
   root.append(nav, logout);
+  const catalogButton = document.createElement('button');
+  catalogButton.type = 'button';
+  catalogButton.className = 'nav-catalog';
+  catalogButton.hidden = true;
+  catalogButton.setAttribute('aria-haspopup', 'dialog');
+  root.insertBefore(catalogButton, nav);
+  const catalogDialog = document.createElement('dialog');
+  catalogDialog.className = 'catalog-dialog';
+  catalogDialog.setAttribute('aria-labelledby', 'catalog-title');
+  catalogDialog.innerHTML = `<h2 id="catalog-title">Toybox catalog</h2>
+    <p data-catalog-status role="status" aria-live="polite"></p>
+    <p data-catalog-checked class="catalog-note"></p>
+    <p data-catalog-error role="alert"></p>
+    <div><button type="button" data-catalog-check>Check now</button>
+    <button type="button" data-catalog-update hidden>Update catalog</button>
+    <button type="button" data-catalog-close>Close</button></div>`;
+  document.body.append(catalogDialog);
+  const catalogStatus = catalogDialog.querySelector('[data-catalog-status]');
+  const catalogChecked = catalogDialog.querySelector('[data-catalog-checked]');
+  const catalogError = catalogDialog.querySelector('[data-catalog-error]');
+  const catalogCheck = catalogDialog.querySelector('[data-catalog-check]');
+  const catalogUpdate = catalogDialog.querySelector('[data-catalog-update]');
+  let catalogBusy = false;
+  function showCatalog(data) {
+    const newer = data.latest_version > data.current_version;
+    catalogButton.hidden = false;
+    catalogButton.textContent = `v${data.current_version}`;
+    const label = `Toybox catalog v${data.current_version}` +
+      (newer ? ` — v${data.latest_version} available` :
+        data.error ? ' — check failed' : data.checked_at ? ' — up to date' : ' — check pending');
+    catalogButton.title = label;
+    catalogButton.setAttribute('aria-label', label);
+    catalogButton.classList.toggle('catalog-new', newer);
+    catalogStatus.textContent = `Using v${data.current_version}. ` +
+      (newer ? `v${data.latest_version} is available.` :
+        data.error ? '' : data.checked_at ? 'Up to date.' : 'First check is pending.');
+    catalogChecked.textContent = 'Checks daily' + (data.checked_at
+      ? ` · Last checked ${new Date(data.checked_at * 1000).toLocaleString()}` : '');
+    catalogError.textContent = data.error ? `Update check failed: ${data.error}` : '';
+    catalogUpdate.hidden = !newer;
+    catalogUpdate.textContent = `Update to v${data.latest_version}`;
+  }
+  async function refreshCatalog() {
+    if (catalogBusy) return;
+    try {
+      const response = await fetch('/api/catalog');
+      if (response.ok) showCatalog(await response.json());
+    } catch (_) { /* Retry on the next status refresh. */ }
+  }
+  catalogButton.addEventListener('click', () => {
+    catalogDialog.showModal();
+    refreshCatalog();
+  });
+  catalogDialog.querySelector('[data-catalog-close]').addEventListener('click', () => catalogDialog.close());
+  async function catalogAction(action) {
+    catalogBusy = true;
+    catalogCheck.disabled = catalogUpdate.disabled = true;
+    catalogError.textContent = '';
+    catalogStatus.textContent = action === 'update' ? 'Updating catalog…' : 'Checking for updates…';
+    try {
+      if (action === 'update') await window.beforeCatalogUpdate?.();
+      const response = await fetch(`/api/catalog/${action}`, {method: 'POST'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || 'Catalog request failed');
+      showCatalog(data);
+      if (action === 'update') location.reload();
+    } catch (error) {
+      catalogError.textContent = error.message;
+    } finally {
+      catalogBusy = false;
+      catalogCheck.disabled = catalogUpdate.disabled = false;
+    }
+  }
+  catalogCheck.addEventListener('click', () => catalogAction('check'));
+  catalogUpdate.addEventListener('click', () => catalogAction('update'));
+
   function centerActive() {
     const active = nav.querySelector('.active');
     if (!active) return;
@@ -74,6 +150,10 @@
     if (session.user?.reviewer) {
       await refreshModerationCount();
       setInterval(refreshModerationCount, 30_000);
+    }
+    if (!session.hosted || session.user?.reviewer) {
+      await refreshCatalog();
+      setInterval(refreshCatalog, 60_000);
     }
     return session;
   })();

@@ -1,5 +1,6 @@
 """Compose the FastAPI application from its route groups."""
 
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -7,8 +8,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .catalog_updates import CatalogUpdates
 from .hosted import HostedStore
-from .routes import moderation, pages, public, reviews
+from .routes import catalog_updates, moderation, pages, public, reviews
 from .workspace import Workspace
 
 
@@ -22,6 +24,7 @@ def create_app(
     pending_dir: Path | None = None,
     secure_cookies: bool = True,
     trusted_hosts: list[str] | None = None,
+    catalog_source: Path | None = None,
 ) -> FastAPI:
     workspace = Workspace(
         input_dir,
@@ -33,12 +36,26 @@ def create_app(
         pending_dir,
     )
 
+    updates = (
+        CatalogUpdates(workspace, catalog_source, products_path)
+        if catalog_source else None
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         worker = workspace.start_prefetch()
+        checker = None
+        if updates:
+            checker = threading.Thread(
+                target=updates.run, name="catalog-check", daemon=True
+            )
+            checker.start()
         try:
             yield
         finally:
+            if updates:
+                updates.stop.set()
+                checker.join(timeout=1)
             workspace.stop_prefetch(worker)
 
     app = FastAPI(
@@ -55,4 +72,5 @@ def create_app(
     public.register(app, workspace)
     reviews.register(app, workspace)
     moderation.register(app, workspace)
+    catalog_updates.register(app, updates)
     return app
