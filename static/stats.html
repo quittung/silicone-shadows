@@ -189,7 +189,7 @@
         renderSummaryBar($('#readiness-summary'), $('#readiness-keys'), [
           ['ready', 'Ready to compare', summary.comparable],
           ['review-pending', 'Pending review', summary.pending_review],
-          ['unprocessed', 'Not processed', summary.products - summary.comparable - summary.pending_review],
+          ['unprocessed', 'Not ready', summary.products - summary.comparable - summary.pending_review],
         ]);
         renderBreakdown($('#vendors'), data.vendors);
         renderBreakdown($('#types'), data.product_types);
