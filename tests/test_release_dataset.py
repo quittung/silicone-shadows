@@ -13,7 +13,10 @@ from admin import release_dataset
 class ReleaseDatasetTest(unittest.TestCase):
     def test_builds_and_verifies_data_only_archive(self):
         with tempfile.TemporaryDirectory() as directory:
-            archive, notes = release_dataset.build("v0.0.0", Path(directory))
+            with patch.object(
+                release_dataset, "latest_release_snapshot", return_value=("v0", ({}, {}))
+            ):
+                archive, notes = release_dataset.build("v0.0.0", Path(directory))
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             with zipfile.ZipFile(archive) as bundle:
                 names = bundle.namelist()
@@ -22,7 +25,15 @@ class ReleaseDatasetTest(unittest.TestCase):
             self.assertEqual(manifest["dataset_version"], "v0.0.0")
             self.assertEqual(manifest["license"], "CC0-1.0")
             self.assertEqual(manifest["rights_notice"], "dataset/NOTICE.md")
-            self.assertIn(f"Records: {manifest['records']['total']}", notes.read_text())
+            self.assertIn(
+                f"Records: {manifest['records']['total']} (", notes.read_text()
+            )
+            self.assertIn("Changes since v0:", notes.read_text())
+            self.assertLess(
+                notes.read_text().index("- Records:"),
+                notes.read_text().index("- Changes since"),
+            )
+            self.assertNotIn("shadows@qtng.dev", notes.read_text())
             self.assertIn("Metadata format version: 1", notes.read_text())
             self.assertIn("Dataset dedication: CC0-1.0", notes.read_text())
             self.assertIn("dataset/LICENSE", names)
@@ -104,6 +115,23 @@ class ReleaseDatasetTest(unittest.TestCase):
         output.assert_called_once_with(
             "Current: +1 records; 1 files added, 1 changed, 1 removed"
         )
+
+    def test_record_changes_count_entries_once(self):
+        before = release_dataset.snapshot(
+            [
+                ("kept/metadata.json", b'{"quality":"good"}'),
+                ("kept/outline.svg", b"old"),
+                ("removed/metadata.json", b'{"quality":"good"}'),
+            ]
+        )[0]
+        after = release_dataset.snapshot(
+            [
+                ("kept/metadata.json", b'{"quality":"unusable"}'),
+                ("kept/outline.svg", b"new"),
+                ("added/metadata.json", b'{"quality":"good"}'),
+            ]
+        )[0]
+        self.assertEqual(release_dataset.record_changes(before, after), (1, 1, 1))
 
     def test_sync_hosted_can_extend_check_mode(self):
         with patch(

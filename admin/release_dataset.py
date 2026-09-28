@@ -473,27 +473,43 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     }
 
 
-def release_notes(manifest: dict) -> str:
+def record_changes(before: dict[str, str], after: dict[str, str]) -> tuple[int, int, int]:
+    before_records = {
+        Path(name).parent for name in before if name.endswith("/metadata.json")
+    }
+    after_records = {
+        Path(name).parent for name in after if name.endswith("/metadata.json")
+    }
+    changed_files = {
+        Path(name).parent
+        for name in before.keys() | after.keys()
+        if before.get(name) != after.get(name)
+    }
+    return (
+        len(after_records - before_records),
+        len(changed_files & before_records & after_records),
+        len(before_records - after_records),
+    )
+
+
+def release_notes(
+    manifest: dict, previous_version: str, changes: tuple[int, int, int]
+) -> str:
     records = manifest["records"]
     quality = records["quality"]
     catalog = manifest["catalog"]
+    added, updated, removed = changes
     return f"""Silhouette dataset snapshot for Fantasy Toybox catalog v{catalog["version"]}.
 
-- Records: {records["total"]}
-- Good: {quality["good"]}
-- Bad perspective: {quality["bad_perspective"]}
-- Unusable: {quality["unusable"]}
+- Records: {records["total"]} ({quality["good"]} good, {quality["bad_perspective"]} bad perspective, {quality["unusable"]} unusable)
+- Changes since {previous_version}: {added} added, {updated} updated, {removed} removed
 - Metadata format version: {manifest["schema_version"]}
 - Dataset dedication: CC0-1.0, to the extent contributors hold applicable rights
 
 The attached ZIP contains the published `dataset/` tree and its snapshot manifest.
-Third-party rights and the project's correction/removal process are described in
-`dataset/NOTICE.md` inside the archive.
+Third-party rights and the project's correction/removal process are described in `dataset/NOTICE.md` inside the archive.
 
-Attribution is not required. If Silicone Shadows is useful to you, a link back
-to [this repo](https://github.com/quittung/silicone-shadows) would be greatly
-appreciated. If you publish a project that uses the dataset, I'd love to see
-it—send a link to shadows@qtng.dev.
+Attribution isn't required; a link to [this repo](https://github.com/quittung/silicone-shadows) is appreciated.
 """
 
 
@@ -501,6 +517,13 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path]:
     validate_release_name(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
+    previous_version, (previous_files, _) = latest_release_snapshot()
+    current_files, _ = snapshot(
+        [
+            (path.relative_to(ROOT / "dataset").as_posix(), path.read_bytes())
+            for path in files
+        ]
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     archive = output_dir / f"silicone-shadows-dataset-{version}.zip"
 
@@ -510,7 +533,12 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path]:
             bundle.write(path, path.relative_to(ROOT))
 
     notes = output_dir / f"silicone-shadows-dataset-{version}-release-notes.md"
-    notes.write_text(release_notes(manifest), encoding="utf-8")
+    notes.write_text(
+        release_notes(
+            manifest, previous_version, record_changes(previous_files, current_files)
+        ),
+        encoding="utf-8",
+    )
     return archive, notes
 
 
