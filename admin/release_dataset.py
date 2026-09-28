@@ -492,9 +492,7 @@ def record_changes(before: dict[str, str], after: dict[str, str]) -> tuple[int, 
     )
 
 
-def release_notes(
-    manifest: dict, previous_version: str, changes: tuple[int, int, int]
-) -> str:
+def release_notes(manifest: dict, changes: tuple[int, int, int]) -> str:
     records = manifest["records"]
     quality = records["quality"]
     catalog = manifest["catalog"]
@@ -502,7 +500,7 @@ def release_notes(
     return f"""Silhouette dataset snapshot for Fantasy Toybox catalog v{catalog["version"]}.
 
 - Records: {records["total"]} ({quality["good"]} good, {quality["bad_perspective"]} bad perspective, {quality["unusable"]} unusable)
-- Changes since {previous_version}: {added} added, {updated} updated, {removed} removed
+- Changes: {added} added, {updated} updated, {removed} removed
 - Metadata format version: {manifest["schema_version"]}
 - Dataset dedication: CC0-1.0, to the extent contributors hold applicable rights
 
@@ -517,7 +515,7 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path]:
     validate_release_name(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
-    previous_version, (previous_files, _) = latest_release_snapshot()
+    _, (previous_files, _) = latest_release_snapshot()
     current_files, _ = snapshot(
         [
             (path.relative_to(ROOT / "dataset").as_posix(), path.read_bytes())
@@ -534,9 +532,7 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path]:
 
     notes = output_dir / f"silicone-shadows-dataset-{version}-release-notes.md"
     notes.write_text(
-        release_notes(
-            manifest, previous_version, record_changes(previous_files, current_files)
-        ),
+        release_notes(manifest, record_changes(previous_files, current_files)),
         encoding="utf-8",
     )
     return archive, notes

@@ -28,10 +28,10 @@ class ReleaseDatasetTest(unittest.TestCase):
             self.assertIn(
                 f"Records: {manifest['records']['total']} (", notes.read_text()
             )
-            self.assertIn("Changes since v0:", notes.read_text())
+            self.assertIn("Changes:", notes.read_text())
             self.assertLess(
                 notes.read_text().index("- Records:"),
-                notes.read_text().index("- Changes since"),
+                notes.read_text().index("- Changes:"),
             )
             self.assertNotIn("shadows@qtng.dev", notes.read_text())
             self.assertIn("Metadata format version: 1", notes.read_text())
