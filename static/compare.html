@@ -234,6 +234,7 @@
     let scaleLocked = false;
     let nextId = 1;
     let bulkAdding = false;
+    let placementArea = null;
     const view = { zoom: 48, x: 0, y: 0 };
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 400;
@@ -375,6 +376,7 @@
           version: 1,
           metric,
           scaleLocked,
+          placementArea,
           view: { ...view },
           objects: objects.map(object => ({
             productId: object.product.id,
@@ -408,6 +410,9 @@
         view.x = saved.view.x;
         view.y = saved.view.y;
       }
+      const area = saved.placementArea;
+      if (area && [area.centerX, area.centerY, area.width, area.height].every(Number.isFinite) &&
+          area.width > 0 && area.height > 0) placementArea = { ...area };
       const productById = new Map(products.map(product => [String(product.id), product]));
       const entries = saved.objects.map(item => {
         const product = productById.get(String(item.productId));
@@ -613,81 +618,49 @@
 
     function placeObjects(items) {
       if (!items.length) return;
-      const itemSet = new Set(items);
-      const occupied = objects.filter(object => !itemSet.has(object)).map(objectBox);
-      const [centerX, centerY] = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
-      const gap = .4;
-      for (const object of items) {
-        const box = objectBox(object);
-        const width = box.maxX - box.minX;
-        const height = box.maxY - box.minY;
-        const boxCenterX = (box.minX + box.maxX) / 2;
-        const boxCenterY = (box.minY + box.maxY) / 2;
-        const candidates = [];
-        for (let x = -20; x <= 20; x++) {
-          for (let y = -20; y <= 20; y++) {
-            candidates.push({
-              x: centerX + x * (width + gap),
-              y: centerY + y * (height + gap),
-              distance: (x * (width + gap)) ** 2 + (y * (height + gap)) ** 2,
-            });
-          }
-        }
-        candidates.sort((left, right) => left.distance - right.distance);
-        let placed = null;
-        for (const candidate of candidates) {
-          const dx = candidate.x - boxCenterX;
-          const dy = candidate.y - boxCenterY;
-          const moved = {
-            minX: box.minX + dx, maxX: box.maxX + dx,
-            minY: box.minY + dy, maxY: box.maxY + dy,
-          };
-          const overlaps = occupied.some(other =>
-            moved.minX < other.maxX + gap && moved.maxX > other.minX - gap &&
-            moved.minY < other.maxY + gap && moved.maxY > other.minY - gap);
-          if (!overlaps) {
-            object.x += dx;
-            object.y += dy;
-            placed = moved;
-            break;
-          }
-        }
-        if (!placed) {
-          const right = occupied.length ? Math.max(...occupied.map(box => box.maxX)) : centerX;
-          const dx = right + gap + width / 2 - boxCenterX;
-          const dy = centerY - boxCenterY;
-          object.x += dx;
-          object.y += dy;
-          placed = {
-            minX: box.minX + dx, maxX: box.maxX + dx,
-            minY: box.minY + dy, maxY: box.maxY + dy,
-          };
-        }
-        occupied.push(placed);
-      }
-      renderLayers();
-      const [minX, minY] = screenToWorld(0, 0);
-      const [maxX, maxY] = screenToWorld(wrap.clientWidth, wrap.clientHeight);
-      const outsideView = items.some(object => {
+      const layout = bulkLayout(items);
+      for (const object of items) placeBulkObject(object, layout);
+      zoomOutForAdditions(items);
+      renderLayers(); render(); queueWorkspaceSave();
+    }
+
+    function zoomOutForAdditions(items) {
+      if (scaleLocked || !items.length) return;
+      const margin = 32;
+      const [minX, minY] = screenToWorld(margin, margin);
+      const [maxX, maxY] = screenToWorld(wrap.clientWidth - margin, wrap.clientHeight - margin);
+      if (!items.some(object => {
         const box = objectBox(object);
         return box.minX < minX || box.maxX > maxX || box.minY < minY || box.maxY > maxY;
-      });
-      if (outsideView) fitAll();
-      else { render(); queueWorkspaceSave(); }
+      })) return;
+      const boxes = objects.map(objectBox);
+      const left = Math.min(...boxes.map(box => box.minX));
+      const right = Math.max(...boxes.map(box => box.maxX));
+      const top = Math.min(...boxes.map(box => box.minY));
+      const bottom = Math.max(...boxes.map(box => box.maxY));
+      view.zoom = Math.max(MIN_ZOOM, Math.min(view.zoom,
+        (wrap.clientWidth - margin * 2) / Math.max(right - left, .01),
+        (wrap.clientHeight - margin * 2) / Math.max(bottom - top, .01)));
+      view.x = wrap.clientWidth / 2 - (left + right) / 2 * view.zoom;
+      view.y = wrap.clientHeight / 2 - (top + bottom) / 2 * view.zoom;
     }
 
-    let placementOffsets = null;
-
-    function centeredPlacementOffsets() {
-      if (placementOffsets) return placementOffsets;
-      placementOffsets = [];
-      for (let x = -64; x <= 64; x++) {
-        for (let y = -64; y <= 64; y++) placementOffsets.push([x, y]);
+    // Evenly scattered candidates avoid rigid rows and item-shaped search grids.
+    const placementOffsets = [[0, 0]];
+    function radicalInverse(value, base) {
+      let result = 0, fraction = 1 / base;
+      while (value) {
+        result += (value % base) * fraction;
+        value = Math.floor(value / base);
+        fraction /= base;
       }
-      placementOffsets.sort((left, right) =>
-        left[0] ** 2 + left[1] ** 2 - right[0] ** 2 - right[1] ** 2);
-      return placementOffsets;
+      return result;
     }
+    for (let index = 1; index <= 2048; index++) {
+      placementOffsets.push([radicalInverse(index, 2) - .5, radicalInverse(index, 3) - .5]);
+    }
+    placementOffsets.sort((a, b) =>
+      Math.max(Math.abs(a[0]), Math.abs(a[1])) - Math.max(Math.abs(b[0]), Math.abs(b[1])));
 
     function occupiedCells(layout, box, padding=0) {
       const cells = [];
@@ -702,7 +675,6 @@
     }
 
     function occupy(layout, box) {
-      layout.right = Math.max(layout.right, box.maxX);
       for (const key of occupiedCells(layout, box)) {
         if (!layout.cells.has(key)) layout.cells.set(key, []);
         layout.cells.get(key).push(box);
@@ -719,10 +691,19 @@
       return false;
     }
 
-    function bulkLayout() {
-      const [centerX, centerY] = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
-      const layout = {centerX, centerY, right:centerX, gap:.4, cellSize:8, cells:new Map()};
-      for (const object of objects) occupy(layout, objectBox(object));
+    function bulkLayout(excluded=[]) {
+      const excludedSet = new Set(excluded);
+      const existing = objects.filter(object => !excludedSet.has(object));
+      if (!placementArea || !existing.length) {
+        // Older workspaces have no saved center: use their first outline once.
+        const [centerX, centerY] = existing.length ? [existing[0].x, existing[0].y]
+          : screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
+        placementArea = { centerX, centerY,
+          width: Math.max(1, (wrap.clientWidth - 64) / view.zoom),
+          height: Math.max(1, (wrap.clientHeight - 64) / view.zoom) };
+      }
+      const layout = {gap:.65, cellSize:8, cells:new Map()};
+      for (const object of existing) occupy(layout, objectBox(object));
       return layout;
     }
 
@@ -732,27 +713,31 @@
       const height = box.maxY - box.minY;
       const boxCenterX = (box.minX + box.maxX) / 2;
       const boxCenterY = (box.minY + box.maxY) / 2;
-      for (const [x, y] of centeredPlacementOffsets()) {
-        const dx = layout.centerX + x * (width + layout.gap) - boxCenterX;
-        const dy = layout.centerY + y * (height + layout.gap) - boxCenterY;
-        const moved = {
-          minX:box.minX + dx, maxX:box.maxX + dx,
-          minY:box.minY + dy, maxY:box.maxY + dy,
-        };
-        if (overlapsOccupied(layout, moved)) continue;
-        object.x += dx;
-        object.y += dy;
-        occupy(layout, moved);
-        return;
+      const area = placementArea;
+      const grow = Math.max(1, (width + 2 * layout.gap) / area.width,
+        (height + 2 * layout.gap) / area.height);
+      area.width *= grow;
+      area.height *= grow;
+      for (;;) {
+        // ponytail: bounded sampling may miss small holes; only add denser searches
+        // if real layouts feel too sparse. Growing leaves existing objects untouched.
+        for (const [x, y] of placementOffsets) {
+          const cx = area.centerX + x * area.width;
+          const cy = area.centerY + y * area.height;
+          if (Math.abs(cx - area.centerX) + width / 2 + layout.gap > area.width / 2 ||
+              Math.abs(cy - area.centerY) + height / 2 + layout.gap > area.height / 2) continue;
+          const dx = cx - boxCenterX, dy = cy - boxCenterY;
+          const moved = { minX:box.minX + dx, maxX:box.maxX + dx,
+            minY:box.minY + dy, maxY:box.maxY + dy };
+          if (overlapsOccupied(layout, moved)) continue;
+          object.x += dx;
+          object.y += dy;
+          occupy(layout, moved);
+          return;
+        }
+        area.width *= 1.15;
+        area.height *= 1.15;
       }
-      const dx = layout.right + layout.gap - box.minX;
-      const dy = layout.centerY - boxCenterY;
-      object.x += dx;
-      object.y += dy;
-      occupy(layout, {
-        minX:box.minX + dx, maxX:box.maxX + dx,
-        minY:box.minY + dy, maxY:box.maxY + dy,
-      });
     }
 
     async function addProductSize(product, size) {
@@ -804,7 +789,6 @@
       $('#add-filter').disabled = true;
       const tasks = variants.flatMap(({ product, sizes }) => sizes.map(size => ({ product, size })));
       const operation = beginLoading('Adding', tasks.length);
-      const layout = bulkLayout();
       const colorCounts = new Map(palette.map(color => [color, 0]));
       for (const object of objects) colorCounts.set(object.color, (colorCounts.get(object.color) || 0) + 1);
       let added = 0;
@@ -817,14 +801,19 @@
         ]);
         if (operation.stopped || !loaded) break;
         const batchStarted = performance.now();
+        const layout = bulkLayout();
+        const additions = [];
         batch.forEach(({ product, size }, index) => {
           if (loaded[index].status !== 'fulfilled') return failures++;
           const color = palette.reduce((best, candidate) =>
             colorCounts.get(candidate) < colorCounts.get(best) ? candidate : best);
           colorCounts.set(color, colorCounts.get(color) + 1);
-          placeBulkObject(addObject(product, size, loaded[index].value, color), layout);
+          const object = addObject(product, size, loaded[index].value, color);
+          placeBulkObject(object, layout);
+          additions.push(object);
           added++;
         });
+        zoomOutForAdditions(additions);
         operation.done += batch.length;
         if (operation.done % 96 === 0) saveWorkspace();
         if (!await paintLoadingBatch(operation, batchStarted)) break;
@@ -837,8 +826,7 @@
         `${added} outline${added === 1 ? '' : 's'} added${stopNote}${failures ? `; ${failures} failed to load` : ''}`,
         failures > 0,
       );
-      if (added && !operation.stopped && objects.length <= 200) fitAll();
-      else { renderLayers(); render(); }
+      renderLayers(); render();
       saveWorkspace();
     }
 
@@ -1342,7 +1330,7 @@
     $('#clear').addEventListener('click', () => {
       workspaceReady = true;
       $('#loading-progress').hidden = true;
-      objects = []; selected = null; layerPage = 0;
+      objects = []; selected = null; layerPage = 0; placementArea = null;
       $('#add').disabled = false;
       filterProducts();
       renderLayers(); render(); saveWorkspace();
