@@ -44,6 +44,14 @@
     canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
     #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); pointer-events:none; }
     #empty.hidden { display:none; }
+    #orientation { position:absolute; inset:0; pointer-events:none; }
+    #orientation[hidden] { display:none; }
+    #orientation button { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; display:grid; place-items:center; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; background:#202c35; box-shadow:0 2px 8px #0008; }
+    #rotate { touch-action:none; cursor:grab; }
+    #orientation svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+    #orientation button:hover { background:#263943; border-color:var(--accent); }
+    #orientation #flip[aria-pressed="true"] { color:var(--accent); background:#164b56; border-color:var(--accent); }
+    #orientation button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     #layers { display:grid; gap:.4rem; }
     .layer-page { color:var(--muted); font-size:.8rem; text-align:center; }
     .layer-page-buttons { display:grid; grid-template-columns:1fr 1fr; gap:.4rem; }
@@ -212,6 +220,14 @@
     </aside>
     <section id="canvas-wrap">
       <canvas id="canvas"></canvas>
+      <div id="orientation" role="group" aria-label="Selected outline orientation" hidden>
+        <button id="rotate" type="button" aria-label="Rotate outline: drag, or use left and right arrow keys" title="Drag to rotate · Arrow keys rotate 5° (Shift: 1°)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4v6h-6"/><path d="M19.5 10a8 8 0 1 0-1.8 8"/></svg>
+        </button>
+        <button id="flip" type="button" aria-label="Flip across length axis" aria-pressed="false" title="Flip across length axis">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke-dasharray="2 3"/><path d="M8 5 2 19h6Z"/><path d="m16 5 6 14h-6Z"/></svg>
+        </button>
+      </div>
       <div id="empty">Add one or more products to compare them.</div>
     </section>
   </main>
@@ -229,6 +245,7 @@
     let selected = null;
     let drag = null;
     let pan = null;
+    let rotationDrag = null;
     let pinch = null;
     const touches = new Map();
     let metric = true;
@@ -384,6 +401,7 @@
             sizeIndex: object.size.index,
             color: object.color,
             rotation: object.rotation,
+            mirrored: object.mirrored,
             x: object.x,
             y: object.y,
             selected: object === selected,
@@ -441,6 +459,7 @@
               object.y = item.y;
             }
             if (Number.isFinite(item.rotation)) object.rotation = item.rotation;
+            object.mirrored = item.mirrored === true;
             if (item.selected) restoredSelected = object;
           });
           operation.done += batch.length;
@@ -601,6 +620,8 @@
           (start[1] + end[1]) / 2,
         ],
         rotation: -Math.PI / 2 - Math.atan2(end[1] - start[1], end[0] - start[0]),
+        defaultRotation: -Math.PI / 2 - Math.atan2(end[1] - start[1], end[0] - start[0]),
+        mirrored: false,
         x, y,
       };
       objects.push(object);
@@ -923,7 +944,8 @@
         const scale = objectScale(object);
         ctx.save();
         ctx.translate(object.x, object.y);
-        ctx.rotate(object.rotation);
+        const [a, b, c, d] = objectMatrix(object);
+        ctx.transform(a, b, c, d, 0, 0);
         ctx.scale(scale, scale);
         ctx.translate(-object.midpoint[0], -object.midpoint[1]);
         if (object === selected) {
@@ -953,6 +975,7 @@
       }
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       drawScaleBar(width, height);
+      renderOrientation(width, height);
       $('#empty').classList.toggle('hidden', objects.length > 0);
       updateScaleControl();
     }
@@ -961,15 +984,85 @@
       return [(x - view.x) / view.zoom, (y - view.y) / view.zoom];
     }
 
+    // Reflect in the normalized length axis, then apply the user's rotation.
+    function objectMatrix(object) {
+      const base = object.defaultRotation;
+      const angle = object.rotation - base;
+      const sign = object.mirrored ? -1 : 1;
+      const c = Math.cos(angle), s = Math.sin(angle);
+      const cb = Math.cos(base), sb = Math.sin(base);
+      return [c * sign * cb - s * sb, s * sign * cb + c * sb,
+        -c * sign * sb - s * cb, -s * sign * sb + c * cb];
+    }
+
+    function worldPoint(object, x, y) {
+      const scale = objectScale(object);
+      const [a, b, c, d] = objectMatrix(object);
+      const dx = (x - object.midpoint[0]) * scale;
+      const dy = (y - object.midpoint[1]) * scale;
+      return [object.x + a * dx + c * dy, object.y + b * dx + d * dy];
+    }
+
     function localPoint(object, x, y) {
       const scale = objectScale(object);
       const [worldX, worldY] = screenToWorld(x, y);
       const dx = worldX - object.x, dy = worldY - object.y;
-      const cosine = Math.cos(object.rotation), sine = Math.sin(object.rotation);
-      return [
-        (cosine * dx + sine * dy) / scale + object.midpoint[0],
-        (-sine * dx + cosine * dy) / scale + object.midpoint[1],
-      ];
+      const [a, b, c, d] = objectMatrix(object);
+      return [(a * dx + b * dy) / scale + object.midpoint[0],
+        (c * dx + d * dy) / scale + object.midpoint[1]];
+    }
+
+    function outlineAxisEnds(object) {
+      if (object.axisEnds) return object.axisEnds;
+      const { start, end } = object.product.main_length;
+      const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+      const ux = (end[0] - start[0]) / length, uy = (end[1] - start[1]) / length;
+      const point = t => [object.midpoint[0] + ux * t, object.midpoint[1] + uy * t];
+      const inside = t => hitCtx.isPointInPath(object.path, ...point(t));
+      const projections = [[0,0], [object.width,0], [0,object.height], [object.width,object.height]]
+        .map(([x,y]) => (x - object.midpoint[0]) * ux + (y - object.midpoint[1]) * uy);
+      const low = Math.min(...projections), high = Math.max(...projections);
+      const step = (high - low) / 1024;
+      let first = null, last = null;
+      // ponytail: probe this one axis once per selected outline; sub-step thin
+      // features can be missed. Exact path intersections are the upgrade path.
+      for (let t = low; t <= high; t += step) {
+        if (inside(t)) { first ??= t; last = t; }
+      }
+      const edge = (inner, outer) => {
+        for (let i = 0; i < 16; i++) {
+          const middle = (inner + outer) / 2;
+          if (inside(middle)) inner = middle; else outer = middle;
+        }
+        return point((inner + outer) / 2);
+      };
+      return object.axisEnds = first === null ? [start, end]
+        : [edge(first, first - step), edge(last, last + step)];
+    }
+
+    function renderOrientation(width, height) {
+      const controls = $('#orientation');
+      controls.hidden = !selected;
+      if (!selected) return;
+      const rotation = selected.rotation - selected.defaultRotation;
+      const angle = rotation - Math.PI / 2;
+      const ends = outlineAxisEnds(selected);
+      $('#flip').setAttribute('aria-pressed', String(selected.mirrored));
+      ctx.save();
+      ctx.strokeStyle = '#b5c7d5'; ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      for (const [selector, end, direction] of [['#rotate', ends[1], 1], ['#flip', ends[0], -1]]) {
+        const world = worldPoint(selected, ...end);
+        const x = view.x + world[0] * view.zoom, y = view.y + world[1] * view.zoom;
+        // Equal screen-space clearance at both silhouette edges, independent of zoom.
+        const hx = Math.max(30, Math.min(width - 30, x + direction * Math.cos(angle) * 48));
+        const hy = Math.max(30, Math.min(height - 30, y + direction * Math.sin(angle) * 48));
+        const button = $(selector);
+        button.style.left = `${hx}px`; button.style.top = `${hy}px`;
+        button.querySelector('svg').style.transform = `rotate(${rotation}rad)`;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(hx, hy); ctx.stroke();
+      }
+      ctx.restore();
     }
 
     function hitObject(x, y) {
@@ -1026,19 +1119,8 @@
     }
 
     function objectBounds(object) {
-      const scale = objectScale(object);
-      const cosine = Math.cos(object.rotation), sine = Math.sin(object.rotation);
-      return [
-        [0, 0], [object.width, 0],
-        [object.width, object.height], [0, object.height],
-      ].map(([x, y]) => {
-        const dx = (x - object.midpoint[0]) * scale;
-        const dy = (y - object.midpoint[1]) * scale;
-        return [
-          object.x + cosine * dx - sine * dy,
-          object.y + sine * dx + cosine * dy,
-        ];
-      });
+      return [[0, 0], [object.width, 0], [object.width, object.height], [0, object.height]]
+        .map(([x, y]) => worldPoint(object, x, y));
     }
 
     function fitAll() {
@@ -1219,6 +1301,55 @@
       return [event.clientX - rect.left, event.clientY - rect.top];
     }
 
+    function changeOrientation(change) {
+      if (!selected) return;
+      change(selected);
+      render(); queueWorkspaceSave();
+    }
+
+    $('#flip').addEventListener('click', () => changeOrientation(object => {
+      object.mirrored = !object.mirrored;
+    }));
+    const rotateHandle = $('#rotate');
+    rotateHandle.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || !selected || rotationDrag) return;
+      event.preventDefault();
+      rotateHandle.focus({ preventScroll:true });
+      rotateHandle.setPointerCapture(event.pointerId);
+      const [x, y] = pointerPosition(event);
+      rotationDrag = { object:selected, pointerId:event.pointerId,
+        angle:Math.atan2(y - view.y - selected.y * view.zoom, x - view.x - selected.x * view.zoom) };
+      drag = pan = null;
+      rotateHandle.style.cursor = 'grabbing';
+    });
+    rotateHandle.addEventListener('pointermove', event => {
+      if (!rotationDrag || event.pointerId !== rotationDrag.pointerId) return;
+      const object = rotationDrag.object;
+      const [x, y] = pointerPosition(event);
+      const dx = x - view.x - object.x * view.zoom, dy = y - view.y - object.y * view.zoom;
+      if (Math.hypot(dx, dy) < 12) return;
+      const angle = Math.atan2(dy, dx);
+      object.rotation += Math.atan2(Math.sin(angle - rotationDrag.angle), Math.cos(angle - rotationDrag.angle));
+      rotationDrag.angle = angle;
+      render();
+    });
+    const finishRotation = event => {
+      if (!rotationDrag || event.pointerId !== rotationDrag.pointerId) return;
+      rotationDrag = null;
+      rotateHandle.style.cursor = 'grab';
+      queueWorkspaceSave();
+    };
+    for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+      rotateHandle.addEventListener(name, finishRotation);
+    }
+    rotateHandle.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      event.preventDefault();
+      changeOrientation(object => {
+        object.rotation += (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 1 : 5) * Math.PI / 180;
+      });
+    });
+
     function startPinch() {
       const [first, second] = [...touches.values()];
       if (!second) return pinch = null;
@@ -1233,6 +1364,7 @@
     }
 
     canvas.addEventListener('pointerdown', event => {
+      if (rotationDrag) return;
       if (event.button !== 0 && event.button !== 1) return;
       if (event.button === 1) event.preventDefault();
       const [x, y] = pointerPosition(event);
@@ -1274,6 +1406,8 @@
         }
       }
       if (drag && selected) {
+        if (Math.hypot(x - drag.x, y - drag.y) < 5 && !drag.moved) return;
+        drag.moved = true;
         selected.x = drag.ox + (x - drag.x) / view.zoom;
         selected.y = drag.oy + (y - drag.y) / view.zoom;
         render();
@@ -1300,7 +1434,7 @@
     });
     canvas.addEventListener('wheel', event => {
       event.preventDefault();
-      if (scaleLocked) return;
+      if (scaleLocked || rotationDrag) return;
       const [x, y] = pointerPosition(event);
       setZoom(view.zoom * Math.exp(-event.deltaY * .0015), x, y);
       render(); queueWorkspaceSave();
