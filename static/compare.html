@@ -44,6 +44,8 @@
     #empty { position:absolute; inset:0; display:grid; place-items:center; text-align:center; color:var(--muted); pointer-events:none; }
     #empty.hidden { display:none; }
     #layers { display:grid; gap:.4rem; }
+    .layer-page { color:var(--muted); font-size:.8rem; text-align:center; }
+    .layer-page-buttons { display:grid; grid-template-columns:1fr 1fr; gap:.4rem; }
     .layer { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.5rem; align-items:start; padding:.55rem; border:1px solid var(--border); border-radius:6px; cursor:pointer; }
     .layer.selected { border-color:var(--accent); }
     .swatch { width:16px; height:16px; margin-top:.15rem; border-radius:3px; }
@@ -67,13 +69,18 @@
     #compare-footer a { color:var(--muted); }
     #compare-footer a:hover { color:var(--accent); }
     #status.error { color:var(--danger); }
+    #loading-progress { position:fixed; z-index:4; left:1rem; bottom:1rem; width:min(24rem,calc(100% - 2rem)); padding:.8rem; border:1px solid var(--border); border-radius:8px; background:var(--panel); box-shadow:0 4px 18px rgb(0 0 0 / 50%); }
+    #loading-progress[hidden] { display:none; }
+    #loading-progress-message { margin:0 0 .55rem; }
+    #loading-progress-note { margin:0 0 .55rem; color:var(--muted); font-size:.85rem; }
+    #loading-progress button { width:auto; }
     dialog { width:min(26rem,calc(100% - 2rem)); padding:0; color:var(--text); background:var(--panel); border:1px solid var(--border); border-radius:10px; }
     dialog::backdrop { background:rgb(0 0 0 / 70%); }
-    .age-gate-form { display:grid; gap:.8rem; padding:1.2rem; }
-    .age-gate-form h2, .age-gate-form p { margin:0; }
-    .age-gate-note { color:var(--muted); font-size:.85rem; }
-    .age-gate-actions { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-top:.3rem; }
-    #confirm-age { border-color:#168da0; background:#164b56; }
+    .dialog-form { display:grid; gap:.8rem; padding:1.2rem; }
+    .dialog-form h2, .dialog-form p { margin:0; }
+    .age-gate-note, .slow-load-consequence { color:var(--muted); font-size:.85rem; }
+    .dialog-actions { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-top:.3rem; }
+    #confirm-age, #confirm-bulk-add, #continue-loading { border-color:#168da0; background:#164b56; }
     #mobile-panel-toggle { display:none; }
     @media (max-width:700px) {
       main { grid-template-columns:1fr; grid-template-rows:minmax(12rem,1fr) minmax(18rem,min(31rem,calc(100% - 12rem))); }
@@ -94,7 +101,7 @@
       .remove { min-width:44px; height:44px; }
       .layer-sizes button { min-width:0; min-height:0; padding:0; }
       .scale-lock-icon { opacity:1; }
-      .age-gate-actions { grid-template-columns:1fr; }
+      .dialog-actions { grid-template-columns:1fr; }
     }
   </style>
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
@@ -106,16 +113,42 @@
     <div data-app-nav="compare"></div>
   </header>
   <dialog id="age-gate" aria-labelledby="age-gate-title">
-    <form method="dialog" class="age-gate-form">
+    <form method="dialog" class="dialog-form">
       <h2 id="age-gate-title">Confirm your age</h2>
       <p>The comparison includes adult products. You must be 18 or older to continue.</p>
       <p class="age-gate-note">If you confirm, this browser will remember it.</p>
-      <div class="age-gate-actions">
+      <div class="dialog-actions">
         <button value="cancel" autofocus>Cancel</button>
         <button id="confirm-age" value="confirm">I am 18 or older</button>
       </div>
     </form>
   </dialog>
+  <dialog id="bulk-add-confirm" aria-labelledby="bulk-add-title" aria-describedby="bulk-add-message">
+    <form method="dialog" class="dialog-form">
+      <h2 id="bulk-add-title">Add <span id="bulk-add-count"></span> outlines?</h2>
+      <p id="bulk-add-message">Things might get crowded or slow down a bit.</p>
+      <div class="dialog-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button id="confirm-bulk-add" value="confirm">Add outlines</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="slow-load-confirm" aria-labelledby="slow-load-title" aria-describedby="slow-load-message slow-load-consequence">
+    <form method="dialog" class="dialog-form">
+      <h2 id="slow-load-title">Loading is slowing down</h2>
+      <p id="slow-load-message"></p>
+      <p id="slow-load-consequence" class="slow-load-consequence"></p>
+      <div class="dialog-actions">
+        <button value="stop" autofocus>Stop here</button>
+        <button id="continue-loading" value="continue">Keep going</button>
+      </div>
+    </form>
+  </dialog>
+  <div id="loading-progress" role="status" aria-live="polite" hidden>
+    <p id="loading-progress-message"></p>
+    <p id="loading-progress-note"></p>
+    <button id="stop-loading" type="button">Stop loading</button>
+  </div>
   <main>
     <button id="mobile-panel-toggle" type="button" aria-label="Collapse controls" aria-expanded="true">
       <svg class="panel-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -205,8 +238,17 @@
     const MIN_ZOOM = 1;
     const MAX_ZOOM = 400;
     const WORKSPACE_KEY = 'silicone-shadows-compare-workspace-v1';
+    const PERFORMANCE_CONSENT_KEY = 'silicone-shadows-compare-slow-loading-ok-';
+    const LOAD_BATCH_SIZE = 12;
+    const SLOW_FRAME_MS = 50;
+    const CRAWLING_FRAME_MS = 250;
+    const WARNING_STREAK = 3;
+    const LAYER_PAGE_SIZE = 100;
     const DEFAULT_PRODUCT_ID = 'reference:credit-card';
     let workspaceReady = false;
+    let restoreStopped = false;
+    let activeLoad = null;
+    let layerPage = 0;
     let saveTimer = null;
     let filterTimer = null;
     const outlineLoads = new Map();
@@ -215,6 +257,99 @@
       $('#status').textContent = message;
       $('#status').classList.toggle('error', error);
     }
+
+    function nextPaint() {
+      return new Promise(resolve => {
+        if (document.hidden) setTimeout(resolve, 0);
+        else requestAnimationFrame(() => setTimeout(resolve, 0));
+      });
+    }
+
+    function performanceConsent(level) {
+      try { return sessionStorage.getItem(`${PERFORMANCE_CONSENT_KEY}${level}`) === '1'; }
+      catch (_) { return false; }
+    }
+
+    function beginLoading(action, total) {
+      const operation = {
+        action, total, done:0, stopped:false, slow50:0, slow250:0,
+        accepted50:performanceConsent(50), accepted250:performanceConsent(250),
+      };
+      operation.stopPromise = new Promise(resolve => { operation.resolveStop = resolve; });
+      activeLoad = operation;
+      layerPage = 0;
+      $('#add').disabled = true;
+      $('#add-filter').disabled = true;
+      $('#clear').disabled = true;
+      $('#stop-loading').textContent = 'Stop loading';
+      $('#loading-progress-note').textContent = action === 'Restoring'
+        ? 'Stopping keeps what is shown and removes the rest from your saved canvas.'
+        : 'Stopping keeps what is shown and skips the rest.';
+      $('#loading-progress').hidden = false;
+      updateLoadingProgress(operation);
+      return operation;
+    }
+
+    function finishLoading() {
+      activeLoad = null;
+      $('#add').disabled = false;
+      $('#clear').disabled = false;
+      filterProducts();
+    }
+
+    function updateLoadingProgress(operation) {
+      $('#loading-progress-message').textContent =
+        `${operation.action} ${operation.done} of ${operation.total} outlines…`;
+    }
+
+    async function paintLoadingBatch(operation, started=performance.now()) {
+      if (operation.done % (LOAD_BATCH_SIZE * 4) < LOAD_BATCH_SIZE ||
+          operation.done === operation.total) renderLayers();
+      render();
+      updateLoadingProgress(operation);
+      await nextPaint();
+      if (operation.stopped || document.hidden || operation.done === operation.total) return !operation.stopped;
+      const frameTime = performance.now() - started;
+      operation.slow50 = frameTime >= SLOW_FRAME_MS ? operation.slow50 + 1 : 0;
+      operation.slow250 = frameTime >= CRAWLING_FRAME_MS ? operation.slow250 + 1 : 0;
+      const level = operation.slow250 >= WARNING_STREAK && !operation.accepted250 ? 250
+        : operation.slow50 >= WARNING_STREAK && !operation.accepted50 ? 50 : null;
+      if (!level) return true;
+      const dialog = $('#slow-load-confirm');
+      $('#slow-load-title').textContent = level === 250 ? 'Loading is crawling' : 'Loading is slowing down';
+      $('#slow-load-message').textContent = level === 250
+        ? "It's really slowing to a crawl. Continue at your own risk."
+        : "It's getting a little slow. Want to keep loading?";
+      const remaining = operation.total - operation.done;
+      $('#slow-load-consequence').textContent = operation.action === 'Restoring'
+        ? `Stop here to keep the ${objects.length} outlines shown and remove the other ${operation.total - objects.length} from your saved canvas.`
+        : `Stop here to keep what's shown and skip the remaining ${remaining} outlines.`;
+      dialog.returnValue = 'stop';
+      dialog.showModal();
+      const keepGoing = await new Promise(resolve => {
+        dialog.addEventListener('close', () => resolve(dialog.returnValue === 'continue'), {once:true});
+      });
+      if (!keepGoing) {
+        operation.stopped = true;
+        operation.resolveStop(null);
+      }
+      else {
+        operation.accepted50 = true;
+        if (level === 250) operation.accepted250 = true;
+        try {
+          sessionStorage.setItem(`${PERFORMANCE_CONSENT_KEY}50`, '1');
+          if (level === 250) sessionStorage.setItem(`${PERFORMANCE_CONSENT_KEY}250`, '1');
+        } catch (_) {}
+      }
+      return !operation.stopped;
+    }
+
+    $('#stop-loading').addEventListener('click', () => {
+      if (activeLoad) {
+        activeLoad.stopped = true;
+        activeLoad.resolveStop(null);
+      }
+    });
 
     function formatLength(inches) {
       return metric ? `${(inches * 2.54).toFixed(1)} cm` : `${inches} in`;
@@ -273,29 +408,49 @@
         view.x = saved.view.x;
         view.y = saved.view.y;
       }
+      const productById = new Map(products.map(product => [String(product.id), product]));
       const entries = saved.objects.map(item => {
-        const product = products.find(product => String(product.id) === String(item.productId));
+        const product = productById.get(String(item.productId));
         const size = product?.sizes.find(size => size.index === Number(item.sizeIndex));
         return product && size ? { item, product, size } : null;
       }).filter(Boolean);
-      const loaded = await Promise.allSettled(
-        entries.map(({ product }) => loadOutline(product.svg_url)),
-      );
-      let restoredSelected = null;
-      entries.forEach(({ item, product, size }, index) => {
-        if (loaded[index].status === 'fulfilled') {
-          const color = palette.includes(item.color) ? item.color : nextColor();
-          const object = addObject(product, size, loaded[index].value, color);
-          if ([item.x, item.y].every(Number.isFinite)) {
-            object.x = item.x;
-            object.y = item.y;
-          }
-          if (Number.isFinite(item.rotation)) object.rotation = item.rotation;
-          if (item.selected) restoredSelected = object;
-        }
-      });
-      selected = restoredSelected;
       setUnits(metric);
+      let restoredSelected = null;
+      if (entries.length) {
+        const operation = beginLoading('Restoring', entries.length);
+        for (let start = 0; start < entries.length && !operation.stopped; start += LOAD_BATCH_SIZE) {
+          const batch = entries.slice(start, start + LOAD_BATCH_SIZE);
+          const loaded = await Promise.race([
+            Promise.allSettled(batch.map(({ product }) => loadOutline(product.svg_url))),
+            operation.stopPromise,
+          ]);
+          if (operation.stopped || !loaded) break;
+          const batchStarted = performance.now();
+          batch.forEach(({ item, product, size }, index) => {
+            if (loaded[index].status !== 'fulfilled') return;
+            const color = palette.includes(item.color) ? item.color : nextColor();
+            const object = addObject(product, size, loaded[index].value, color);
+            if ([item.x, item.y].every(Number.isFinite)) {
+              object.x = item.x;
+              object.y = item.y;
+            }
+            if (Number.isFinite(item.rotation)) object.rotation = item.rotation;
+            if (item.selected) restoredSelected = object;
+          });
+          operation.done += batch.length;
+          if (!await paintLoadingBatch(operation, batchStarted)) break;
+        }
+        restoreStopped = operation.stopped;
+        finishLoading();
+        $('#loading-progress').hidden = true;
+        if (operation.stopped) {
+          setStatus(`${objects.length} outlines kept; ${operation.total - objects.length} removed from the saved canvas`);
+        } else {
+          setStatus(`${objects.length} outlines restored`);
+        }
+      }
+      selected = restoredSelected;
+      renderLayers(); render();
       return true;
     }
 
@@ -521,6 +676,85 @@
       else { render(); queueWorkspaceSave(); }
     }
 
+    let placementOffsets = null;
+
+    function centeredPlacementOffsets() {
+      if (placementOffsets) return placementOffsets;
+      placementOffsets = [];
+      for (let x = -64; x <= 64; x++) {
+        for (let y = -64; y <= 64; y++) placementOffsets.push([x, y]);
+      }
+      placementOffsets.sort((left, right) =>
+        left[0] ** 2 + left[1] ** 2 - right[0] ** 2 - right[1] ** 2);
+      return placementOffsets;
+    }
+
+    function occupiedCells(layout, box, padding=0) {
+      const cells = [];
+      const minX = Math.floor((box.minX - padding) / layout.cellSize);
+      const maxX = Math.floor((box.maxX + padding) / layout.cellSize);
+      const minY = Math.floor((box.minY - padding) / layout.cellSize);
+      const maxY = Math.floor((box.maxY + padding) / layout.cellSize);
+      for (let x = minX; x <= maxX; x++) {
+        for (let y = minY; y <= maxY; y++) cells.push(`${x}:${y}`);
+      }
+      return cells;
+    }
+
+    function occupy(layout, box) {
+      layout.right = Math.max(layout.right, box.maxX);
+      for (const key of occupiedCells(layout, box)) {
+        if (!layout.cells.has(key)) layout.cells.set(key, []);
+        layout.cells.get(key).push(box);
+      }
+    }
+
+    function overlapsOccupied(layout, box) {
+      for (const key of occupiedCells(layout, box, layout.gap)) {
+        for (const other of layout.cells.get(key) || []) {
+          if (box.minX < other.maxX + layout.gap && box.maxX > other.minX - layout.gap &&
+              box.minY < other.maxY + layout.gap && box.maxY > other.minY - layout.gap) return true;
+        }
+      }
+      return false;
+    }
+
+    function bulkLayout() {
+      const [centerX, centerY] = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
+      const layout = {centerX, centerY, right:centerX, gap:.4, cellSize:8, cells:new Map()};
+      for (const object of objects) occupy(layout, objectBox(object));
+      return layout;
+    }
+
+    function placeBulkObject(object, layout) {
+      const box = objectBox(object);
+      const width = box.maxX - box.minX;
+      const height = box.maxY - box.minY;
+      const boxCenterX = (box.minX + box.maxX) / 2;
+      const boxCenterY = (box.minY + box.maxY) / 2;
+      for (const [x, y] of centeredPlacementOffsets()) {
+        const dx = layout.centerX + x * (width + layout.gap) - boxCenterX;
+        const dy = layout.centerY + y * (height + layout.gap) - boxCenterY;
+        const moved = {
+          minX:box.minX + dx, maxX:box.maxX + dx,
+          minY:box.minY + dy, maxY:box.maxY + dy,
+        };
+        if (overlapsOccupied(layout, moved)) continue;
+        object.x += dx;
+        object.y += dy;
+        occupy(layout, moved);
+        return;
+      }
+      const dx = layout.right + layout.gap - box.minX;
+      const dy = layout.centerY - boxCenterY;
+      object.x += dx;
+      object.y += dy;
+      occupy(layout, {
+        minX:box.minX + dx, maxX:box.maxX + dx,
+        minY:box.minY + dy, maxY:box.maxY + dy,
+      });
+    }
+
     async function addProductSize(product, size) {
       const existing = objects.find(object =>
         String(object.product.id) === String(product.id) && object.size.index === size.index);
@@ -546,37 +780,66 @@
     }
 
     async function addFiltered() {
+      if (bulkAdding) return;
+      const existing = new Set(objects.map(object => `${object.product.id}:${object.size.index}`));
       const variants = shownProducts.map(product => ({
-        product,
-        sizes: matchingSizes(product).filter(size => !objects.some(object =>
-          String(object.product.id) === String(product.id) && object.size.index === size.index)),
+        product, sizes: matchingSizes(product).filter(size =>
+          !existing.has(`${product.id}:${size.index}`)),
       })).filter(entry => entry.sizes.length);
       if (!variants.length) {
         return setStatus('All matches are already on the canvas');
       }
+      const outlineCount = variants.reduce((total, entry) => total + entry.sizes.length, 0);
+      if (outlineCount >= 25) {
+        const dialog = $('#bulk-add-confirm');
+        $('#bulk-add-count').textContent = outlineCount;
+        dialog.returnValue = 'cancel';
+        dialog.showModal();
+        const confirmed = await new Promise(resolve => {
+          dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), {once:true});
+        });
+        if (!confirmed) return;
+      }
       bulkAdding = true;
       $('#add-filter').disabled = true;
+      const tasks = variants.flatMap(({ product, sizes }) => sizes.map(size => ({ product, size })));
+      const operation = beginLoading('Adding', tasks.length);
+      const layout = bulkLayout();
+      const colorCounts = new Map(palette.map(color => [color, 0]));
+      for (const object of objects) colorCounts.set(object.color, (colorCounts.get(object.color) || 0) + 1);
       let added = 0;
       let failures = 0;
-      const addedObjects = [];
-      for (let index = 0; index < variants.length; index++) {
-        const { product, sizes } = variants[index];
-        setStatus(`Loading ${index + 1} of ${variants.length} filtered products…`);
-        try {
-          const loaded = await loadOutline(product.svg_url);
-          for (const size of sizes) {
-            addedObjects.push(addObject(product, size, loaded, nextColor()));
-            added++;
-          }
-        } catch (_) { failures++; }
+      for (let start = 0; start < tasks.length && !operation.stopped; start += LOAD_BATCH_SIZE) {
+        const batch = tasks.slice(start, start + LOAD_BATCH_SIZE);
+        const loaded = await Promise.race([
+          Promise.allSettled(batch.map(({ product }) => loadOutline(product.svg_url))),
+          operation.stopPromise,
+        ]);
+        if (operation.stopped || !loaded) break;
+        const batchStarted = performance.now();
+        batch.forEach(({ product, size }, index) => {
+          if (loaded[index].status !== 'fulfilled') return failures++;
+          const color = palette.reduce((best, candidate) =>
+            colorCounts.get(candidate) < colorCounts.get(best) ? candidate : best);
+          colorCounts.set(color, colorCounts.get(color) + 1);
+          placeBulkObject(addObject(product, size, loaded[index].value, color), layout);
+          added++;
+        });
+        operation.done += batch.length;
+        if (operation.done % 96 === 0) saveWorkspace();
+        if (!await paintLoadingBatch(operation, batchStarted)) break;
       }
       bulkAdding = false;
-      filterProducts();
+      finishLoading();
+      $('#loading-progress').hidden = true;
+      const stopNote = operation.stopped ? `; ${operation.total - operation.done} skipped` : '';
       setStatus(
-        `${added} product${added === 1 ? '' : 's'} added${failures ? `; ${failures} outlines failed to load` : ''}`,
+        `${added} outline${added === 1 ? '' : 's'} added${stopNote}${failures ? `; ${failures} failed to load` : ''}`,
         failures > 0,
       );
-      placeObjects(addedObjects);
+      if (added && !operation.stopped && objects.length <= 200) fitAll();
+      else { renderLayers(); render(); }
+      saveWorkspace();
     }
 
     function objectScale(object) {
@@ -663,7 +926,11 @@
         ratio * view.zoom, 0, 0, ratio * view.zoom,
         ratio * view.x, ratio * view.y,
       );
+      const [minX, minY] = screenToWorld(0, 0);
+      const [maxX, maxY] = screenToWorld(width, height);
       for (const object of objects) {
+        const box = objectBox(object);
+        if (box.maxX < minX || box.minX > maxX || box.maxY < minY || box.minY > maxY) continue;
         const scale = objectScale(object);
         ctx.save();
         ctx.translate(object.x, object.y);
@@ -837,7 +1104,28 @@
     function renderLayers() {
       const layers = $('#layers');
       layers.replaceChildren();
-      for (const object of [...objects].reverse()) {
+      layerPage = Math.min(layerPage, Math.max(0, Math.ceil(objects.length / LAYER_PAGE_SIZE) - 1));
+      const end = objects.length - layerPage * LAYER_PAGE_SIZE;
+      const start = Math.max(0, end - LAYER_PAGE_SIZE);
+      if (objects.length > LAYER_PAGE_SIZE) {
+        const label = document.createElement('div');
+        label.className = 'layer-page';
+        label.textContent = `Showing ${start + 1}–${end} of ${objects.length} outlines`;
+        const buttons = document.createElement('div');
+        buttons.className = 'layer-page-buttons';
+        const older = document.createElement('button');
+        older.textContent = 'Older outlines';
+        older.disabled = start === 0;
+        older.addEventListener('click', () => { layerPage++; renderLayers(); });
+        const newer = document.createElement('button');
+        newer.textContent = 'Newer outlines';
+        newer.disabled = layerPage === 0;
+        newer.addEventListener('click', () => { layerPage--; renderLayers(); });
+        buttons.append(older, newer);
+        layers.append(label, buttons);
+      }
+      const addedIds = new Set(objects.map(object => `${object.product.id}:${object.size.index}`));
+      for (const object of objects.slice(start, end).reverse()) {
         const layer = document.createElement('div');
         layer.className = `layer${object === selected ? ' selected' : ''}`;
         const approximate = object.product.rating === 'bad_perspective';
@@ -881,8 +1169,7 @@
           sizes = document.createElement('div'); sizes.className = 'layer-sizes';
           sizes.append('Also available in ');
           alternatives.forEach(size => {
-            const existing = objects.some(item =>
-              String(item.product.id) === String(object.product.id) && item.size.index === size.index);
+            const existing = addedIds.has(`${object.product.id}:${size.index}`);
             const button = document.createElement('button');
             button.textContent = size.label;
             button.classList.toggle('added', existing);
@@ -917,11 +1204,12 @@
         layers.appendChild(layer);
       }
       alignFactIcons();
-      layers.querySelector('.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (!activeLoad) layers.querySelector('.selected')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
 
     function selectObject(object) {
       selected = object;
+      layerPage = Math.floor((objects.length - 1 - objects.indexOf(object)) / LAYER_PAGE_SIZE);
       renderLayers(); render(); queueWorkspaceSave();
     }
 
@@ -1051,7 +1339,14 @@
     $('#scale-down').addEventListener('click', () => adjustScale(-1));
     $('#scale-up').addEventListener('click', () => adjustScale(1));
     $('#scale-lock').addEventListener('click', toggleScaleLock);
-    $('#clear').addEventListener('click', () => { objects = []; selected = null; renderLayers(); render(); saveWorkspace(); });
+    $('#clear').addEventListener('click', () => {
+      workspaceReady = true;
+      $('#loading-progress').hidden = true;
+      objects = []; selected = null; layerPage = 0;
+      $('#add').disabled = false;
+      filterProducts();
+      renderLayers(); render(); saveWorkspace();
+    });
     function revealAddProducts() {
       if (!matchMedia('(max-width:700px)').matches) return;
       const controls = $('#controls');
@@ -1120,7 +1415,9 @@
         workspaceReady = true;
         saveWorkspace();
         renderLayers(); render();
-        setStatus(products.length ? `${products.length} products available for comparison` : 'No products with size and length-vector data yet');
+        if (!restoreStopped) setStatus(products.length
+          ? `${products.length} products available for comparison`
+          : 'No products with size and length-vector data yet');
       } catch (error) { setStatus(error.message, true); }
       requestAnimationFrame(revealAddProducts);
     }
