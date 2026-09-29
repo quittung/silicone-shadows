@@ -840,7 +840,7 @@
 
     function drawGrid(width, height) {
       ctx.save();
-      ctx.strokeStyle = '#2a3139';
+      ctx.strokeStyle = '#46535f';
       const { minorSpacing, subdivisions } = scaleLayout();
       const minX = -view.x / view.zoom;
       const maxX = (width - view.x) / view.zoom;
@@ -848,12 +848,12 @@
       const maxY = (height - view.y) / view.zoom;
       for (let index = Math.floor(minX / minorSpacing); index <= Math.ceil(maxX / minorSpacing); index++) {
         const x = view.x + index * minorSpacing * view.zoom;
-        ctx.globalAlpha = index % subdivisions === 0 ? .8 : .35;
+        ctx.globalAlpha = index % subdivisions === 0 ? .85 : .45;
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
       }
       for (let index = Math.floor(minY / minorSpacing); index <= Math.ceil(maxY / minorSpacing); index++) {
         const y = view.y + index * minorSpacing * view.zoom;
-        ctx.globalAlpha = index % subdivisions === 0 ? .8 : .35;
+        ctx.globalAlpha = index % subdivisions === 0 ? .85 : .45;
         ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
       }
       ctx.restore();
