@@ -1,8 +1,18 @@
-# Compare page: measurement ideas (deferred)
+# Compare page: measurement prototype
 
-Measurement is shelved for now. The primary user request is mirroring to
-compare opposite curvatures; a ruler was also mentioned. These are discussion
-notes, not an agreed implementation plan.
+A first local prototype now replaces Fit all with Measure. Entering creates a
+single world-space line immediately; there is no first-point/second-point flow.
+Two 44px handles sit below and outward from the endpoints, connected by dashed
+stems. Dragging adjusts the endpoints; arrow keys move by one screen pixel
+(Shift: ten). A live readout in the top Measure panel uses the chosen metric/imperial units.
+
+The sidebar is inert and outlines stay fixed until Done or Escape. Canvas
+panning and wheel/pinch zoom remain available; the ruler stays in world space.
+Mobile controls temporarily collapse. Exiting discards the ruler and restores
+normal interaction. Nothing is persisted. Evaluate offset comfort on a real
+phone; the initial layout has only been checked in a mobile-sized browser.
+
+The earlier discussion below is retained as design context, not a to-do list.
 
 ## Purpose
 

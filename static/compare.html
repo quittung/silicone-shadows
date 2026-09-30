@@ -38,7 +38,7 @@
     #scale-lock.active .lock-open { display:none; }
     #scale-lock.active .lock-closed { display:block; }
     #add, #add-filter { margin-top:.65rem; }
-    #add, #add-filter, #stop-loading { background:#164b56; border-color:#168da0; font-weight:650; }
+    #add, #add-filter, #stop-loading, #measure-done { background:#164b56; border-color:#168da0; font-weight:650; }
     #size { margin-top:.45rem; }
     #canvas-wrap { grid-column:1; grid-row:1; position:relative; min-width:0; min-height:0; background:#161a1f; }
     canvas { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
@@ -46,12 +46,21 @@
     #empty.hidden { display:none; }
     #orientation { position:absolute; inset:0; pointer-events:none; }
     #orientation[hidden] { display:none; }
-    #orientation button { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; display:grid; place-items:center; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; background:#202c35; box-shadow:0 2px 8px #0008; }
+    #orientation button, .measure-handle { position:absolute; transform:translate(-50%,-50%); pointer-events:auto; display:grid; place-items:center; width:44px; height:44px; min-height:44px; padding:0; border-radius:50%; background:#202c35; box-shadow:0 2px 8px #0008; }
     #rotate { touch-action:none; cursor:grab; }
     #orientation svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
-    #orientation button:hover { background:#263943; border-color:var(--accent); }
+    #orientation button:hover, .measure-handle:hover { background:#263943; border-color:var(--accent); }
     #orientation #flip[aria-pressed="true"] { color:var(--accent); background:#164b56; border-color:var(--accent); }
-    #orientation button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    #orientation button:focus-visible, .measure-handle:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    #measurement { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+    #measurement[hidden] { display:none; }
+    #measure-bar { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:16px; width:max-content; max-width:calc(100% - 24px); padding:.8rem; }
+    #measure-bar small { display:block; margin-top:.25rem; color:#c5d2dc; font-size:.85rem; }
+    #measure-done { width:auto; min-height:44px; pointer-events:auto; }
+    .measure-handle { touch-action:none; cursor:move; }
+    #measure-value { margin-left:.6rem; font-weight:650; white-space:nowrap; font-variant-numeric:tabular-nums; }
+    body.measuring #controls { opacity:.45; }
+    body.measuring #mobile-panel-toggle { visibility:hidden; }
     #layers { display:grid; gap:.4rem; }
     .layer-page { color:var(--muted); font-size:.8rem; text-align:center; }
     .layer-page-buttons { display:grid; grid-template-columns:1fr 1fr; gap:.4rem; }
@@ -78,7 +87,8 @@
     #compare-footer a { color:var(--muted); }
     #compare-footer a:hover { color:var(--accent); }
     #status.error { color:var(--danger); }
-    #loading-progress { position:fixed; z-index:4; left:1rem; bottom:1rem; width:min(24rem,calc(100% - 2rem)); padding:.8rem; border:1px solid #65818e; border-radius:8px; background:#263943; box-shadow:0 6px 24px rgb(0 0 0 / 65%); }
+    #measure-bar, #loading-progress { border:1px solid #65818e; border-radius:8px; background:#263943; box-shadow:0 6px 24px rgb(0 0 0 / 65%); }
+    #loading-progress { position:fixed; z-index:4; left:1rem; bottom:1rem; width:min(24rem,calc(100% - 2rem)); padding:.8rem; }
     #loading-progress[hidden] { display:none; }
     #loading-progress-message { margin:0 0 .55rem; font-weight:650; }
     #loading-progress-note { margin:0 0 .55rem; color:#c5d2dc; font-size:.85rem; }
@@ -184,7 +194,7 @@
           <button id="imperial" aria-pressed="false">Imperial</button>
           <button id="metric" class="active" aria-pressed="true">Metric</button>
         </div>
-        <div class="row" style="margin-top:.65rem"><button id="fit-all">Fit all</button><button id="clear">Clear canvas</button></div>
+        <div class="row" style="margin-top:.65rem"><button id="measure">Measure</button><button id="clear">Clear canvas</button></div>
       </fieldset>
 
       <fieldset id="add-products">
@@ -228,6 +238,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18" stroke-dasharray="2 3"/><path d="M8 5 2 19h6Z"/><path d="m16 5 6 14h-6Z"/></svg>
         </button>
       </div>
+      <div id="measurement" hidden>
+        <div id="measure-bar"><div><strong>Measure</strong><output id="measure-value" aria-label="Measured length"></output><small>Drag the handles to adjust</small></div><button id="measure-done">Done</button></div>
+        <button class="measure-handle" id="measure-a" aria-label="Move first endpoint; use arrow keys for precision" title="Drag to move endpoint · Arrow keys: 1 px (Shift: 10 px)">A</button>
+        <button class="measure-handle" id="measure-b" aria-label="Move second endpoint; use arrow keys for precision" title="Drag to move endpoint · Arrow keys: 1 px (Shift: 10 px)">B</button>
+      </div>
       <div id="empty">Add one or more products to compare them.</div>
     </section>
   </main>
@@ -246,6 +261,9 @@
     let drag = null;
     let pan = null;
     let rotationDrag = null;
+    let measurement = null;
+    let measureDrag = null;
+    let measureCollapsedPanel = false;
     let pinch = null;
     const touches = new Map();
     let metric = true;
@@ -300,6 +318,7 @@
       $('#add').disabled = true;
       $('#add-filter').disabled = true;
       $('#clear').disabled = true;
+      $('#measure').disabled = true;
       $('#stop-loading').textContent = 'Stop loading';
       $('#loading-progress-note').textContent = action === 'Restoring'
         ? 'Stopping keeps what is shown and removes the rest from your saved canvas.'
@@ -313,6 +332,7 @@
       activeLoad = null;
       $('#add').disabled = false;
       $('#clear').disabled = false;
+      $('#measure').disabled = false;
       filterProducts();
     }
 
@@ -976,7 +996,8 @@
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       drawScaleBar(width, height);
       renderOrientation(width, height);
-      $('#empty').classList.toggle('hidden', objects.length > 0);
+      renderMeasurement();
+      $('#empty').classList.toggle('hidden', objects.length > 0 || !!measurement);
       updateScaleControl();
     }
 
@@ -1042,8 +1063,8 @@
 
     function renderOrientation(width, height) {
       const controls = $('#orientation');
-      controls.hidden = !selected;
-      if (!selected) return;
+      controls.hidden = !selected || !!measurement;
+      if (!selected || measurement) return;
       const rotation = selected.rotation - selected.defaultRotation;
       const angle = rotation - Math.PI / 2;
       const ends = outlineAxisEnds(selected);
@@ -1097,7 +1118,6 @@
       $('#scale-lock').title = scaleLocked ? 'Unlock scale' : 'Lock scale';
       $('#scale-down').disabled = scaleLocked || view.zoom <= MIN_ZOOM;
       $('#scale-up').disabled = scaleLocked || view.zoom >= MAX_ZOOM;
-      $('#fit-all').disabled = scaleLocked;
     }
 
     function setZoom(zoom, anchorX=wrap.clientWidth / 2, anchorY=wrap.clientHeight / 2) {
@@ -1301,6 +1321,107 @@
       return [event.clientX - rect.left, event.clientY - rect.top];
     }
 
+    function startMeasurement() {
+      if (activeLoad || measurement) return;
+      drag = pan = pinch = rotationDrag = null;
+      touches.clear();
+      measureCollapsedPanel = matchMedia('(max-width:700px)').matches && !$('main').classList.contains('panel-collapsed');
+      if (measureCollapsedPanel) $('#mobile-panel-toggle').click();
+      const width = wrap.clientWidth, height = wrap.clientHeight;
+      measurement = [screenToWorld(width * .32, height * .48), screenToWorld(width * .68, height * .48)];
+      $('#controls').inert = true;
+      document.body.classList.add('measuring');
+      $('#measurement').hidden = false;
+      render();
+      $('#measure-a').focus({preventScroll:true});
+    }
+
+    function stopMeasurement() {
+      measureDrag = measurement = null;
+      drag = pan = pinch = null;
+      touches.clear();
+      canvas.style.cursor = 'grab';
+      $('#measurement').hidden = true;
+      $('#controls').inert = false;
+      document.body.classList.remove('measuring');
+      if (measureCollapsedPanel) $('#mobile-panel-toggle').click();
+      render();
+      $('#measure').focus({preventScroll:true});
+    }
+
+    function measurementLength() {
+      return Math.hypot(measurement[1][0] - measurement[0][0], measurement[1][1] - measurement[0][1]);
+    }
+
+    function measurementHandle(index) {
+      const [x, y] = measurement[index];
+      // Fixed screen-space offset keeps fingers below and away from the endpoints.
+      return [view.x + x * view.zoom + (index ? 34 : -34), view.y + y * view.zoom + 48];
+    }
+
+    function moveMeasurementPoint(index, x, y) {
+      const offset = index ? 34 : -34;
+      x = Math.max(Math.max(10, 24 - offset), Math.min(wrap.clientWidth - Math.max(10, 24 + offset), x));
+      y = Math.max(100, Math.min(wrap.clientHeight - 78, y));
+      measurement[index] = screenToWorld(x, y);
+    }
+
+    function renderMeasurement() {
+      if (!measurement) return;
+      const points = measurement.map(([x,y]) => [view.x + x * view.zoom, view.y + y * view.zoom]);
+      ctx.save();
+      ctx.strokeStyle = '#111418'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(...points[0]); ctx.lineTo(...points[1]); ctx.stroke();
+      ctx.strokeStyle = '#b5c7d5'; ctx.lineWidth = 1.5; ctx.stroke();
+      points.forEach(([x,y], index) => {
+        const [hx,hy] = measurementHandle(index);
+        ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(hx,hy); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.moveTo(x-6,y); ctx.lineTo(x+6,y); ctx.moveTo(x,y-6); ctx.lineTo(x,y+6); ctx.stroke();
+        const handle = $(index ? '#measure-b' : '#measure-a');
+        handle.style.left = `${hx}px`; handle.style.top = `${hy}px`;
+      });
+      ctx.restore();
+      const value = $('#measure-value');
+      value.textContent = metric ? `${(measurementLength() * 2.54).toFixed(1)} cm` : `${measurementLength().toFixed(2)} in`;
+    }
+
+    for (const [index, id] of ['#measure-a', '#measure-b'].entries()) {
+      const handle = $(id);
+      handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || !measurement || measureDrag) return;
+        event.preventDefault();
+        handle.focus({preventScroll:true});
+        handle.setPointerCapture(event.pointerId);
+        drag = pan = pinch = null;
+        touches.clear();
+        measureDrag = {index, pointerId:event.pointerId, start:pointerPosition(event), point:[...measurement[index]]};
+      });
+      handle.addEventListener('pointermove', event => {
+        if (!measureDrag || event.pointerId !== measureDrag.pointerId) return;
+        const [x,y] = pointerPosition(event);
+        moveMeasurementPoint(index,
+          view.x + measureDrag.point[0] * view.zoom + x - measureDrag.start[0],
+          view.y + measureDrag.point[1] * view.zoom + y - measureDrag.start[1]);
+        render();
+      });
+      for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        handle.addEventListener(name, event => {
+          if (measureDrag?.pointerId === event.pointerId) measureDrag = null;
+        });
+      }
+      handle.addEventListener('keydown', event => {
+        const direction = {ArrowLeft:[-1,0], ArrowRight:[1,0], ArrowUp:[0,-1], ArrowDown:[0,1]}[event.key];
+        if (!direction || !measurement) return;
+        event.preventDefault();
+        const step = event.shiftKey ? 10 : 1;
+        moveMeasurementPoint(index, view.x + measurement[index][0] * view.zoom + direction[0] * step,
+          view.y + measurement[index][1] * view.zoom + direction[1] * step);
+        render();
+      });
+    }
+
     function changeOrientation(change) {
       if (!selected) return;
       change(selected);
@@ -1364,7 +1485,7 @@
     }
 
     canvas.addEventListener('pointerdown', event => {
-      if (rotationDrag) return;
+      if (rotationDrag || measureDrag) return;
       if (event.button !== 0 && event.button !== 1) return;
       if (event.button === 1) event.preventDefault();
       const [x, y] = pointerPosition(event);
@@ -1377,17 +1498,18 @@
           return;
         }
       }
-      const object = event.button === 0 ? hitObject(x, y) : null;
+      const object = !measurement && event.button === 0 ? hitObject(x, y) : null;
       if (object) {
         selectObject(object);
         drag = { x, y, ox: object.x, oy: object.y };
       } else {
-        if (event.button === 0) clearSelection();
+        if (!measurement && event.button === 0) clearSelection();
         pan = { x, y, ox: view.x, oy: view.y };
       }
       canvas.style.cursor = 'grabbing';
     });
     canvas.addEventListener('pointermove', event => {
+      if (measureDrag) return;
       const [x, y] = pointerPosition(event);
       if (event.pointerType === 'touch' && touches.has(event.pointerId)) {
         touches.set(event.pointerId, [x, y]);
@@ -1434,12 +1556,16 @@
     });
     canvas.addEventListener('wheel', event => {
       event.preventDefault();
-      if (scaleLocked || rotationDrag) return;
+      if (scaleLocked || rotationDrag || measureDrag) return;
       const [x, y] = pointerPosition(event);
       setZoom(view.zoom * Math.exp(-event.deltaY * .0015), x, y);
       render(); queueWorkspaceSave();
     }, { passive: false });
     addEventListener('keydown', event => {
+      if (measurement) {
+        if (event.key === 'Escape') stopMeasurement();
+        return;
+      }
       if (event.key === 'Escape') return clearSelection();
       if (!['Delete', 'Backspace'].includes(event.key) || !selected ||
           event.target.closest('input, textarea, select, [contenteditable]')) return;
@@ -1458,7 +1584,8 @@
     $('#add-filter').addEventListener('click', addFiltered);
     $('#imperial').addEventListener('click', () => setUnits(false));
     $('#metric').addEventListener('click', () => setUnits(true));
-    $('#fit-all').addEventListener('click', fitAll);
+    $('#measure').addEventListener('click', startMeasurement);
+    $('#measure-done').addEventListener('click', stopMeasurement);
     $('#scale-down').addEventListener('click', () => adjustScale(-1));
     $('#scale-up').addEventListener('click', () => adjustScale(1));
     $('#scale-lock').addEventListener('click', toggleScaleLock);
