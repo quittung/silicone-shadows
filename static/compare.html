@@ -645,7 +645,7 @@
         x, y,
       };
       objects.push(object);
-      selected = object;
+      if (!activeLoad) selected = object;
       return object;
     }
 
@@ -835,6 +835,7 @@
       for (const object of objects) colorCounts.set(object.color, (colorCounts.get(object.color) || 0) + 1);
       let added = 0;
       let failures = 0;
+      let lastAdded = null;
       for (let start = 0; start < tasks.length && !operation.stopped; start += LOAD_BATCH_SIZE) {
         const batch = tasks.slice(start, start + LOAD_BATCH_SIZE);
         const loaded = await Promise.race([
@@ -851,6 +852,7 @@
             colorCounts.get(candidate) < colorCounts.get(best) ? candidate : best);
           colorCounts.set(color, colorCounts.get(color) + 1);
           const object = addObject(product, size, loaded[index].value, color);
+          lastAdded = object;
           placeBulkObject(object, layout);
           additions.push(object);
           added++;
@@ -862,6 +864,7 @@
       }
       bulkAdding = false;
       finishLoading();
+      if (lastAdded) selected = lastAdded;
       $('#loading-progress').hidden = true;
       const stopNote = operation.stopped ? `; ${operation.total - operation.done} skipped` : '';
       setStatus(
