@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css?v=20260829-1">
+  <link rel="stylesheet" href="/static/review.css?v=20261008-variants-10">
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
   <link rel="stylesheet" href="/static/nav.css?v=20260923-2">
   <link rel="stylesheet" href="/static/metadata.css">
@@ -103,6 +103,10 @@
             <button id="unavailable-search-images">Search for another image</button>
           </div>
         </div>
+        <div id="variant-blank" hidden>
+          <strong>Add an image for this outline</strong>
+          <span>Paste or drop a photo onto the canvas.</span>
+        </div>
         <div id="loading">Preparing mask…</div>
         <div id="empty-state">
           <div>
@@ -114,12 +118,14 @@
         </div>
       </div>
       <div id="viewbar">
-        <button class="view active" data-view="overlay">Overlay</button>
+        <div class="view-modes"><button class="view active" data-view="overlay">Overlay</button>
         <button class="view" data-view="original">Original</button>
-        <button class="view" data-view="cutout">Cutout</button>
-        <span class="spacer"></span>
-        <button id="fit">Fit</button>
-        <span id="view-hint" class="hint">Wheel zoom · middle drag pans</span>
+        <button class="view" data-view="cutout">Cutout</button></div>
+        <div id="variant-controls" hidden>
+          <button id="variants-open">Variants</button>
+        </div>
+        <div class="view-tools"><button id="fit">Fit</button>
+        <span id="view-hint" class="hint">Wheel zoom · middle drag pans</span></div>
       </div>
     </section>
 
@@ -207,9 +213,37 @@
     </aside>
   </main>
 
+  <dialog id="variants-panel">
+    <div class="variants-panel-header">
+      <h2>Variants</h2>
+      <section id="variant-coverage" aria-label="Size coverage"></section>
+    </div>
+    <div id="variant-list"></div>
+    <div class="variant-panel-actions">
+      <button id="variant-add">Add outline</button>
+      <button id="variants-close">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="variant-dialog">
+    <form id="variant-form">
+      <h2 id="variant-dialog-title">Add outline</h2>
+      <p id="variant-dialog-help">Choose the sizes that share this outline.</p>
+      <fieldset id="variant-scope">
+        <legend>Assigned sizes</legend>
+        <label><input type="radio" name="variant-scope" id="variant-general" value="general"> All sizes without a specific outline</label>
+        <p id="variant-general-help" hidden>These sizes already have a fallback outline.</p>
+        <label><input type="radio" name="variant-scope" id="variant-specific" value="specific"> Selected sizes</label>
+      </fieldset>
+      <div id="variant-sizes"></div>
+      <p id="variant-error" role="alert"></p>
+      <div class="variant-dialog-actions"><button id="variant-cancel" type="button">Cancel</button><button id="variant-confirm" type="submit">Add outline</button></div>
+    </form>
+  </dialog>
+
   <script src="/static/nav.js?v=20260923-2"></script>
   <script src="/static/metadata.js"></script>
   <script src="/static/review-url.js?v=20260823-1"></script>
-  <script src="/static/review.js?v=20260923-1"></script>
+  <script src="/static/review.js?v=20261008-variants-10"></script>
 </body>
 </html>

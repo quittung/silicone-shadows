@@ -36,7 +36,235 @@ let claimHeartbeat = null;
 let navigationIds = null;
 let prioritizeLeastRecent = true;
 const view = { zoom: 1, x: 0, y: 0, fit: 1 };
+let activeVariant = '';
+let variantCollection = {outlines: [], sizes: [], general: true};
+let outlinePreview = false;
+let variantDialogMode = 'add';
+let variantBusy = false;
+let variantDialogTarget = '';
+// Outline labels belong to this editor session, not the published dataset.
+const outlineNumbers = new Map();
+let outlineNumberItem = null;
+let nextOutlineNumber = 1;
 
+function outlineLabel(id) {
+  if (!outlineNumbers.has(id)) outlineNumbers.set(id, nextOutlineNumber++);
+  return `Outline ${outlineNumbers.get(id)}`;
+}
+
+function outlineIconButton(label, path) {
+  const button = document.createElement('button');
+  button.className = 'variant-icon';
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const shape = document.createElementNS(svg.namespaceURI, 'path');
+  shape.setAttribute('d', path);
+  svg.append(shape); button.append(svg);
+  return button;
+}
+
+function outlineApi(path, itemId = current?.id) {
+  return `/api/items/${encodeURIComponent(itemId)}/${path}?variant=${encodeURIComponent(activeVariant)}`;
+}
+
+function renderVariantControls() {
+  const controls = $('#variant-controls');
+  controls.hidden = !current || current.independent;
+  $('#variant-add').hidden = !!current?.read_only;
+  $('#variant-add').disabled = variantBusy || !variantCollection.sizes.length;
+  const list = $('#variant-list');
+  list.replaceChildren();
+  for (const entry of variantCollection.outlines) {
+    const row = document.createElement('section'); row.className = 'variant-row';
+    const heading = document.createElement('div'); heading.className = 'variant-row-heading';
+    const name = outlineLabel(entry.id);
+    const radio = document.createElement('input');
+    radio.type = 'radio'; radio.name = 'outline-selection';
+    radio.className = 'variant-radio';
+    radio.id = `outline-selection-${outlineNumbers.get(entry.id)}`;
+    radio.checked = entry.id === activeVariant;
+    radio.disabled = variantBusy;
+    radio.setAttribute('aria-label', name);
+    radio.addEventListener('change', () => switchVariant(entry.id));
+    const title = document.createElement('h3');
+    title.textContent = name;
+    heading.append(title);
+    if (!current?.read_only) {
+      const remove = outlineIconButton(`Delete ${outlineLabel(entry.id)}`,
+        'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7');
+      remove.classList.add('variant-delete');
+      remove.disabled = variantBusy || variantCollection.outlines.length <= 1;
+      if (variantCollection.outlines.length <= 1) remove.title = 'Keep at least one outline';
+      remove.addEventListener('click', () => {
+        if (confirm(`Remove ${outlineLabel(entry.id)} and its editing work?`)) {
+          $('#variants-panel').close();
+          mutateVariant({action:'remove', id:entry.id});
+        }
+      });
+      heading.append(remove);
+    }
+    const sizes = document.createElement('p');
+    sizes.append(document.createTextNode(`Sizes: ${entry.id === '' ? 'All sizes without a specific outline' : entry.sizes.join(', ')}`));
+    if (!current?.read_only) {
+      const change = document.createElement('button'); change.textContent = 'Change';
+      change.className = 'variant-change';
+      change.setAttribute('aria-label', `Change sizes for ${outlineLabel(entry.id)}`);
+      change.disabled = variantBusy || !variantCollection.sizes.length;
+      change.addEventListener('click', () => openVariantDialog('assign', entry.id));
+      sizes.append(document.createTextNode(' '), change);
+    }
+    row.append(radio, heading, sizes);
+    list.append(row);
+  }
+  const coverage = $('#variant-coverage');
+  coverage.replaceChildren();
+  coverage.hidden = !variantCollection.sizes.length;
+  const table = document.createElement('table'); table.setAttribute('aria-label', 'Size coverage');
+  const headers = document.createElement('tr');
+  const values = document.createElement('tr');
+  const fallback = variantCollection.outlines.find(entry => entry.id === '');
+  let hasFallback = false;
+  let hasMissing = false;
+  for (const size of variantCollection.sizes) {
+    const specific = variantCollection.outlines.find(entry => entry.id !== '' && entry.sizes.includes(size));
+    const outline = specific || fallback;
+    const label = document.createElement('th'); label.scope = 'col';
+    label.textContent = variantCollection.size_labels?.[size] || size;
+    label.title = size;
+    const value = document.createElement('td');
+    value.textContent = outline ? `${outlineNumbers.get(outline.id)}${specific ? '' : '*'}` : '—';
+    value.title = outline ? `${size}: ${outlineLabel(outline.id)}${specific ? '' : ' (fallback)'}` : `${size}: No outline`;
+    value.setAttribute('aria-label', value.title);
+    if (!outline) value.className = 'variant-uncovered';
+    hasFallback ||= !!outline && !specific;
+    hasMissing ||= !outline;
+    headers.append(label); values.append(value);
+  }
+  const head = document.createElement('thead'); head.append(headers);
+  const body = document.createElement('tbody'); body.append(values);
+  table.append(head, body); coverage.append(table);
+  if (hasFallback || hasMissing) {
+    const note = document.createElement('small');
+    note.textContent = [hasFallback ? '* Fallback' : '', hasMissing ? '— No outline' : ''].filter(Boolean).join(' · ');
+    coverage.append(note);
+  }
+}
+
+async function refreshVariants(itemId) {
+  if (outlineNumberItem !== itemId) {
+    outlineNumberItem = itemId;
+    outlineNumbers.clear();
+    nextOutlineNumber = 1;
+  }
+  variantCollection = await api(`/api/items/${encodeURIComponent(itemId)}/variants`);
+  if (!variantCollection.outlines.some(entry => entry.id === activeVariant)) activeVariant = variantCollection.outlines[0]?.id || '';
+  renderVariantControls();
+}
+
+async function saveVariantDraft() {
+  clearTimeout(autosaveTimer);
+  await saveChain;
+  if (state && !current?.read_only && (metadataDirty || editsDirty)) await save('pending');
+}
+
+async function switchVariant(id) {
+  if (variantBusy) return;
+  variantBusy = true;
+  try {
+    await saveVariantDraft();
+    activeVariant = id;
+    await loadItem(current.id);
+  } catch (error) { setStatus(error.message, true); }
+  finally {
+    variantBusy = false;
+    renderVariantControls();
+    if ($('#variants-panel').open) $('#variant-list input:checked')?.focus();
+  }
+}
+
+async function mutateVariant(change, selectId) {
+  if (variantBusy) return;
+  variantBusy = true;
+  $('#variant-confirm').disabled = true;
+  try {
+    await saveVariantDraft();
+    variantCollection = await api(`/api/items/${encodeURIComponent(current.id)}/variants`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(change)});
+    if (change.action === 'remove') outlineNumbers.delete(change.id);
+    if (change.move_from != null && selectId != null && outlineNumbers.has(change.move_from)) {
+      const number = outlineNumbers.get(change.move_from);
+      outlineNumbers.delete(change.move_from);
+      outlineNumbers.set(selectId, number);
+    }
+    activeVariant = selectId ?? (variantCollection.outlines.some(entry => entry.id === activeVariant)
+      ? activeVariant : variantCollection.outlines[0]?.id) ?? '';
+    $('#variant-dialog').close();
+    await loadItem(current.id);
+  } catch (error) {
+    $('#variant-error').textContent = error.message;
+    setStatus(error.message, true);
+  } finally { variantBusy = false; $('#variant-confirm').disabled = false; renderVariantControls(); }
+}
+
+function openVariantDialog(mode, target = activeVariant) {
+  variantDialogTarget = target;
+  variantDialogMode = mode;
+  $('#variants-panel').close();
+  $('#variant-dialog-title').textContent = mode === 'add' ? 'Add outline' : `Change sizes · ${outlineLabel(target)}`;
+  $('#variant-confirm').textContent = mode === 'add' ? 'Add outline' : 'Apply';
+  $('#variant-error').textContent = '';
+  const generalUnavailable = variantCollection.general && (mode === 'add' || target !== '');
+  $('#variant-general').disabled = generalUnavailable;
+  $('#variant-general-help').hidden = !generalUnavailable;
+  $('#variant-general').checked = mode === 'assign' && target === '';
+  $('#variant-specific').checked = !$('#variant-general').checked;
+  const selected = variantCollection.outlines.find(entry => entry.id === target);
+  const list = $('#variant-sizes'); list.replaceChildren();
+  for (const size of variantCollection.sizes) {
+    const owner = variantCollection.outlines.find(entry => entry.sizes.includes(size));
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.value = size;
+    checkbox.checked = mode === 'assign' && !!selected?.sizes.includes(size);
+    checkbox.disabled = !!owner && (mode === 'add' || owner.id !== target);
+    label.append(checkbox, document.createTextNode(`${size}${checkbox.disabled ? ` (assigned to ${outlineLabel(owner.id)})` : ''}`));
+    list.append(label);
+  }
+  $('#variant-sizes').hidden = $('#variant-general').checked;
+  $('#variant-dialog').showModal();
+}
+
+$('#variants-open').addEventListener('click', () => {
+  renderVariantControls();
+  $('#variants-panel').showModal();
+});
+$('#variants-close').addEventListener('click', () => $('#variants-panel').close());
+$('#variant-add').addEventListener('click', () => openVariantDialog('add'));
+$('#variant-scope').addEventListener('change', () => {
+  $('#variant-sizes').hidden = $('#variant-general').checked;
+});
+$('#variant-cancel').addEventListener('click', () => {
+  $('#variant-dialog').close();
+  $('#variants-panel').showModal();
+});
+$('#variant-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const sizes = [...$('#variant-sizes').querySelectorAll('input:checked')].map(input => input.value);
+  const target = variantDialogTarget;
+  if ($('#variant-general').checked) {
+    if (variantDialogMode === 'assign' && target === '') {
+      $('#variant-dialog').close();
+      $('#variants-panel').showModal();
+      return;
+    }
+    return mutateVariant({action:'general', move_from:variantDialogMode === 'assign' ? target : null}, '');
+  }
+  if (!sizes.length) { $('#variant-error').textContent = 'Select at least one size.'; return; }
+  const id = variantDialogMode === 'add' || !target ? `v-${crypto.randomUUID()}` : target;
+  mutateVariant({action:variantDialogMode === 'add' || !target ? 'add' : 'assign', id, sizes,
+    move_from: variantDialogMode === 'assign' && !target ? '' : null}, id);
+});
 function editorUrlView(itemId = current?.id) {
   return {
     state: $('#filter').value,
@@ -94,7 +322,7 @@ function loadImage(url, cacheBust = true) {
     const image = new Image();
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error(`Could not load ${url}`));
-    image.src = cacheBust ? `${url}?v=${Date.now()}` : url;
+    image.src = cacheBust ? `${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}` : url;
   });
 }
 
@@ -279,6 +507,8 @@ function showEmptyState(title, message) {
   rembgImage = null;
   state = null;
   current = null;
+  $('#variant-controls').hidden = true;
+  $('#variant-blank').hidden = true;
   $('#published-state').classList.remove('visible');
   setSidebarMode('empty');
   setEditorDisabled(false);
@@ -337,11 +567,13 @@ async function showPublishedItem(item) {
     button.classList.toggle('active', button.dataset.rating === item.rating));
   setStatus(`${stage} (read-only)`);
   canvas.style.cursor = 'grab';
-  if (!item.svg_url) return render();
+  renderVariantControls();
+  const previewUrl = variantCollection.outlines.find(entry => entry.id === activeVariant)?.preview_url || item.svg_url;
+  if (!previewUrl) return render();
   $('#loading').textContent = 'Loading published silhouette…';
   $('#loading').classList.add('visible');
   try {
-    sourceImage = await loadPublishedSvg(item.svg_url);
+    sourceImage = await loadPublishedSvg(previewUrl);
     fitView();
   } catch (error) {
     sourceImage = null;
@@ -396,6 +628,10 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
   if (hostedMode && current && current.id !== itemId) await releaseCurrentClaim();
   $('#empty-state').classList.remove('visible');
   const listed = items.find(item => item.id === itemId);
+  if (current?.id !== itemId) activeVariant = '';
+  outlinePreview = false;
+  $('#variant-blank').hidden = true;
+  if (!listed?.independent) await refreshVariants(itemId);
   if (listed?.read_only) {
     await syncPrefetch([], null);
     await showPublishedItem(listed);
@@ -416,8 +652,25 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
   $('#loading').classList.add('visible');
   setStatus('');
   try {
-    const insecure = allowInvalidCertificate ? '?allow_invalid_certificate=true' : '';
-    const details = await api(`/api/items/${encodeURIComponent(itemId)}/prepare${insecure}`, { method: 'POST' });
+    const insecure = allowInvalidCertificate ? '&allow_invalid_certificate=true' : '';
+    const details = await api(`${outlineApi('prepare', itemId)}${insecure}`, { method: 'POST' });
+    if (details.blank) {
+      current = listed; state = sourceImage = rembgImage = null;
+      editsDirty = metadataDirty = false;
+      strokes = []; activeStroke = activeCrop = activeLength = null;
+      updateLineInfo();
+      $$('.rating button').forEach(button => button.classList.remove('active'));
+      setItemTitle(current); setEditorDisabled(true); renderVariantControls();
+      $('#save-next').disabled = $('#download-current').disabled = true;
+      $('#reset-catalog').hidden = true;
+      $('#source-info').textContent = 'Paste or drop a photo onto the canvas.';
+      $('#variant-blank').hidden = false;
+      $('#view-hint').textContent = 'Paste or drop an image to begin';
+      if (hostedMode) startClaimHeartbeat(itemId);
+      render(); updateEditorUrl(urlMode, itemId);
+      await syncPrefetch(visibleItems(), itemId);
+      return;
+    }
     if (details.source_unavailable) {
       current = listed;
       if (hostedMode) {
@@ -440,6 +693,17 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
       await syncPrefetch([], itemId);
       updateEditorUrl(urlMode, itemId);
       return;
+    }
+    if (details.preview_only) {
+      current = listed; state = details.state; outlinePreview = true;
+      rembgImage = null; sourceImage = await loadPublishedSvg(details.preview_url);
+      editsDirty = metadataDirty = false;
+      setItemTitle(current); setEditorDisabled(true);
+      $('#save-next').disabled = $('#download-current').disabled = false;
+      $('#source-info').textContent = 'Saved outline retained. Paste or drop a photo to edit its shape.';
+      $('#reset-catalog').hidden = true;
+      renderVariantControls(); fitView();
+      setStatus('Saved outline retained'); return;
     }
     const images = [loadImage(details.source_url), loadImage(details.rembg_url)];
     if (details.edits_url) images.push(loadImage(details.edits_url));
@@ -466,11 +730,12 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
     if (hostedMode) startClaimHeartbeat(itemId);
 
     setItemTitle(current);
+    renderVariantControls();
     setTool(tool);
-    $('#source-info').textContent = current.has_alternative
+    $('#source-info').textContent = details.has_alternative
       ? 'Alternative image active. Drop or paste another to replace it.'
       : 'Drop or paste an image onto the canvas.';
-    $('#reset-catalog').hidden = !current.has_alternative;
+    $('#reset-catalog').hidden = !details.has_alternative;
     $('#threshold').value = state.alpha_threshold;
     $('#threshold-value').textContent = state.alpha_threshold;
     $$('.rating button').forEach(button =>
@@ -510,7 +775,7 @@ async function uploadAlternative(file) {
   $('#loading').classList.add('visible');
   setStatus('Uploading alternative image…');
   try {
-    await api(`/api/items/${encodeURIComponent(itemId)}/alternative`, { method: 'POST', body: form });
+    await api(outlineApi('alternative', itemId), { method: 'POST', body: form });
     await refreshItems();
     await loadItem(itemId);
     setStatus('Alternative image active');
@@ -522,7 +787,7 @@ async function uploadAlternative(file) {
 }
 
 async function resetToCatalog() {
-  if (!current?.has_alternative) return;
+  if ($('#reset-catalog').hidden) return;
   if (!confirm('Reset to the catalog image and clear the current mask edits, rating, and length line?')) return;
   clearTimeout(autosaveTimer);
   await saveChain;
@@ -531,7 +796,7 @@ async function resetToCatalog() {
   $('#loading').classList.add('visible');
   setStatus('Restoring catalog image…');
   try {
-    await api(`/api/items/${encodeURIComponent(itemId)}/alternative`, { method: 'DELETE' });
+    await api(outlineApi('alternative', itemId), { method: 'DELETE' });
     await refreshItems();
     await loadItem(itemId);
     setStatus('Catalog image restored');
@@ -727,7 +992,7 @@ function render() {
   ctx.drawImage(sourceImage, 0, 0);
   ctx.filter = 'none';
 
-  if (current?.read_only) return;
+  if (current?.read_only || outlinePreview) return;
   if (viewMode === 'overlay') {
     ctx.globalAlpha = Number($('#opacity').value) / 100;
     ctx.drawImage(overlayCanvas, 0, 0);
@@ -876,7 +1141,7 @@ function markDirty(paint = false) {
   if (paint) editsDirty = true;
   if (current) current.status = 'pending';
   clearTimeout(autosaveTimer);
-  if (!hostedMode) autosaveTimer = setTimeout(() => save('pending'), 700);
+  autosaveTimer = setTimeout(() => save('pending'), 700);
   refreshProgressText();
 }
 
@@ -897,7 +1162,7 @@ async function remaskCrop(box) {
   for (const [name, value] of Object.entries(box)) form.append(name, value);
   try {
     const response = await fetch(
-      `/api/items/${encodeURIComponent(itemId)}/remask-crop`,
+      outlineApi('remask-crop', itemId),
       {method: 'POST', body: form},
     );
     if (!response.ok) throw await responseError(response);
@@ -943,7 +1208,7 @@ async function performSave(status) {
   const form = new FormData();
   form.append('state_json', JSON.stringify(state));
   if (editsDirty) form.append('edits', await canvasBlob(editsCanvas), 'edits.png');
-  const result = await api(`/api/items/${encodeURIComponent(itemId)}/save`, { method: 'POST', body: form });
+  const result = await api(outlineApi('save', itemId), { method: 'POST', body: form });
   editsDirty = false;
   metadataDirty = false;
   const listed = items.find(item => item.id === itemId);
@@ -971,7 +1236,7 @@ function save(status) {
 
 async function navigate(direction) {
   if (!current) return;
-  if (!hostedMode && (metadataDirty || editsDirty)) {
+  if (current && !current.read_only && (metadataDirty || editsDirty)) {
     try { await save('pending'); } catch (_) { return; }
   }
   const visible = visibleItems();
@@ -984,7 +1249,7 @@ async function navigate(direction) {
 
 async function saveAndNext() {
   if (!state?.rating) return setStatus('Choose a rating first', true);
-  if (state.rating !== 'unusable' && !state.main_length) {
+  if (state.rating !== 'unusable' && !state.main_length && !outlinePreview) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
   const orderedIds = navigationIds || items.map(item => item.id);
@@ -1012,10 +1277,7 @@ async function saveAndNext() {
 async function downloadCurrent() {
   if (!current || !state) return;
   if (!state.rating) return setStatus('Choose a rating first', true);
-  if (state.rating === 'unusable') {
-    return setStatus('An unusable item has no silhouette to download', true);
-  }
-  if (!state.main_length) {
+  if (state.rating !== 'unusable' && !state.main_length && !outlinePreview) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
   const button = $('#download-current');
@@ -1028,7 +1290,7 @@ async function downloadCurrent() {
   if (editsDirty) form.append('edits', await canvasBlob(editsCanvas), 'edits.png');
   try {
     const response = await fetch(
-      `/api/items/${encodeURIComponent(current.id)}/save`,
+      outlineApi('save'),
       {method: 'POST', body: form},
     );
     if (!response.ok) throw await responseError(response);
@@ -1345,11 +1607,12 @@ window.beforeCatalogUpdate = async () => {
       (hostedMode && current && !current.read_only)) {
     throw new Error('Finish your current review before updating the catalog.');
   }
-  if (!hostedMode && (metadataDirty || editsDirty)) await save('pending');
+  if (current && !current.read_only && (metadataDirty || editsDirty)) await save('pending');
   await saveChain;
 };
 
 window.addEventListener('keydown', event => {
+  if ($('#variant-dialog').open || $('#variants-panel').open || outlinePreview) return;
   const toolShortcut = {a: 'add', e: 'erase', r: 'remask', w: 'length'}[event.key.toLowerCase()];
   if (toolShortcut && !event.ctrlKey && !event.metaKey && !event.altKey &&
       !event.target.matches('input:not([type="range"]), select, textarea, [contenteditable]')) {

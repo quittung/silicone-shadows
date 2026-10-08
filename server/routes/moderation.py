@@ -1,6 +1,7 @@
 """Reviewer-only pending-submission routes."""
 
 import shutil
+import json
 from typing import Literal
 from urllib.parse import quote
 
@@ -24,12 +25,20 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.get("/api/submissions/{item_id}/outline.svg")
     def pending_outline(
-        item_id: str, request: Request, show_length: bool = False
+        item_id: str, request: Request, show_length: bool = False, variant: str = ""
     ) -> Response:
         require_reviewer(request)
         if not store or not store.submission(item_id):
             raise HTTPException(status_code=404, detail="pending submission not found")
-        path = workspace.pending_paths(item_id)["svg"]
+        pending = workspace.pending_paths(item_id)
+        if variant:
+            metadata = json.loads(pending["metadata"].read_text())
+            entries = metadata.get("records", [{}])[0].get("variants", {})
+            if variant not in entries:
+                raise HTTPException(status_code=404, detail="unknown variant")
+            path = pending["directory"] / "variants" / variant / "outline.svg"
+        else:
+            path = pending["svg"]
         if not path.is_file():
             raise HTTPException(
                 status_code=404, detail="submission has no usable outline"
@@ -74,6 +83,34 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     for product in workspace.catalog_by_stem.get(row["item_id"], [])
                 ]
             )
+            variant_previews = []
+            if row["kind"] == "catalog":
+                raw = json.loads(
+                    workspace.pending_paths(row["item_id"])["metadata"].read_text()
+                )
+                for key, entry in (
+                    raw.get("records", [{}])[0].get("variants", {}).items()
+                ):
+                    variant_previews.append(
+                        {
+                            "label": " + ".join(entry["sizes"]),
+                            "quality": entry["quality"],
+                            "outline_url": f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg?variant={quote(key)}&show_length=true"
+                            if entry["quality"] != "unusable"
+                            else None,
+                            "source_url": (
+                                f"/api/moderation/submissions/{quote(row['item_id'], safe='')}/source?variant={quote(key)}"
+                                if entry["source"] == "catalog"
+                                or (
+                                    workspace.pending_paths(row["item_id"])["directory"]
+                                    / "variants"
+                                    / key
+                                    / "alternative.png"
+                                ).is_file()
+                                else None
+                            ),
+                        }
+                    )
             submissions.append(
                 {
                     "item_id": row["item_id"],
@@ -83,6 +120,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "rating": rating,
                     "source": row["source"],
                     "products": products,
+                    "variants": variant_previews,
                     "outline_url": (
                         f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg?show_length=true"
                         if independent or rating != "unusable"
@@ -98,12 +136,23 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         return {"submissions": submissions}
 
     @app.get("/api/moderation/submissions/{item_id}/source")
-    def moderation_source(item_id: str, request: Request) -> FileResponse:
+    def moderation_source(
+        item_id: str, request: Request, variant: str = ""
+    ) -> FileResponse:
         require_reviewer(request)
         submission = store.submission(item_id)
         if not submission:
             raise HTTPException(status_code=404, detail="pending submission not found")
-        alternative = workspace.pending_paths(item_id)["alternative"]
+        pending = workspace.pending_paths(item_id)
+        if variant:
+            raw = json.loads(pending["metadata"].read_text())
+            if variant not in raw.get("records", [{}])[0].get("variants", {}):
+                raise HTTPException(status_code=404, detail="unknown variant")
+            alternative = (
+                pending["directory"] / "variants" / variant / "alternative.png"
+            )
+        else:
+            alternative = pending["alternative"]
         path = (
             alternative if alternative.is_file() else workspace.download_source(item_id)
         )
@@ -149,7 +198,16 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 raise HTTPException(
                     status_code=500, detail="pending outline is missing"
                 )
-            workspace.publish(item_id, state, svg_path, submission["source"])
+            raw = json.loads(pending["metadata"].read_text())
+            entries = raw.get("records", [{}])[0].get("variants", {})
+            workspace.publish(
+                item_id,
+                state,
+                svg_path,
+                submission["source"],
+                variants=entries,
+                variants_directory=pending["directory"],
+            )
         store.remove_submission(item_id)
         if pending["directory"].is_dir():
             shutil.rmtree(pending["directory"])

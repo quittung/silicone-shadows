@@ -67,10 +67,9 @@ def next_release_name() -> str:
     numbers = []
     for release in releases:
         tag = release.get("tagName", "")
-        match = (
-            INTEGER_VERSION_PATTERN.fullmatch(tag)
-            or LEGACY_VERSION_PATTERN.fullmatch(tag)
-        )
+        match = INTEGER_VERSION_PATTERN.fullmatch(
+            tag
+        ) or LEGACY_VERSION_PATTERN.fullmatch(tag)
         if match:
             numbers.append(int(match.group(1)))
     return f"v{max(numbers, default=0) + 1}"
@@ -144,9 +143,7 @@ def latest_release_snapshot() -> tuple[str, tuple[dict[str, str], Counter[str]]]
     return tag, snapshot(contents)
 
 
-def report_snapshot(
-    label: str, current: tuple[dict[str, str], Counter[str]]
-) -> None:
+def report_snapshot(label: str, current: tuple[dict[str, str], Counter[str]]) -> None:
     files, qualities = current
     quality = ", ".join(f"{name}={qualities[name]}" for name in QUALITIES)
     print(f"{label}: {sum(qualities.values())} records ({quality}), {len(files)} files")
@@ -241,7 +238,9 @@ def read_hosted_catalog(directory: Path) -> dict:
     target = directory / "catalog_source.json"
     source = hosted_dataset_source().removesuffix("dataset/") + "catalog_source.json"
     subprocess.run(
-        ["rsync", "--quiet", source, str(target)], cwd=ROOT, check=True,
+        ["rsync", "--quiet", source, str(target)],
+        cwd=ROOT,
+        check=True,
     )
     catalog = json.loads(target.read_text())
     local = json.loads((ROOT / "catalog_source.json").read_text())
@@ -250,9 +249,13 @@ def read_hosted_catalog(directory: Path) -> dict:
         or set(catalog) != set(local)
         or type(catalog.get("version")) is not int
         or catalog["version"] <= 0
-        or any(catalog.get(key) != local.get(key) for key in ("provider", "url_template"))
+        or any(
+            catalog.get(key) != local.get(key) for key in ("provider", "url_template")
+        )
     ):
-        raise ValueError("hosted catalog source is invalid or uses a different provider")
+        raise ValueError(
+            "hosted catalog source is invalid or uses a different provider"
+        )
     return catalog
 
 
@@ -296,7 +299,8 @@ def sync_hosted_dataset(version: str) -> bool:
     print(changes, flush=True)
     subprocess.run(
         ["git", "add", "-A", "--", "dataset", "catalog_source.json"],
-        cwd=ROOT, check=True,
+        cwd=ROOT,
+        check=True,
     )
     staged = git("diff", "--cached", "--name-only")
     if not staged or any(
@@ -313,7 +317,8 @@ def sync_hosted_dataset(version: str) -> bool:
     )
     subprocess.run(
         ["git", "commit", "-m", message, "--", "dataset", "catalog_source.json"],
-        cwd=ROOT, check=True,
+        cwd=ROOT,
+        check=True,
     )
     return True
 
@@ -370,9 +375,20 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     for path in files:
         relative = path.relative_to(ROOT)
         if relative not in DATASET_ROOT_FILES and (
-            len(relative.parts) != 5
-            or relative.parts[0] != "dataset"
-            or relative.name not in {"metadata.json", "outline.svg"}
+            relative.parts[0] != "dataset"
+            or not (
+                (
+                    len(relative.parts) == 5
+                    and relative.name in {"metadata.json", "outline.svg"}
+                )
+                or (
+                    len(relative.parts) == 6
+                    and relative.parts[-2] == "variants"
+                    and re.fullmatch(
+                        r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}\.svg", relative.name
+                    )
+                )
+            )
         ):
             raise ValueError(f"unexpected published dataset file: {relative}")
 
@@ -382,6 +398,7 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     schema_versions: set[int] = set()
     catalog_ids: set[int] = set()
     record_ids: set[str] = set()
+    referenced_outlines: set[Path] = set()
 
     for path in metadata_files:
         record = json.loads(path.read_text(encoding="utf-8"))
@@ -389,9 +406,13 @@ def build_manifest(version: str, files: list[Path]) -> dict:
         expected_fields = (
             INDEPENDENT_METADATA_FIELDS if independent else CATALOG_METADATA_FIELDS
         )
+        if "variants" in record:
+            expected_fields = expected_fields | {"variants"}
         if set(record) != expected_fields:
             raise ValueError(f"{path.relative_to(ROOT)} has unexpected metadata fields")
-        if type(record["schema_version"]) is not int:
+        if type(record["schema_version"]) is not int or record[
+            "schema_version"
+        ] not in {1, 2}:
             raise ValueError(f"{path.relative_to(ROOT)} has an invalid schema version")
         quality = record.get("quality")
         if quality not in QUALITIES:
@@ -432,7 +453,60 @@ def build_manifest(version: str, files: list[Path]) -> dict:
         qualities[quality] += 1
         schema_versions.add(record.get("schema_version"))
 
+        variants = record.get("variants", {})
+        if "variants" in record and (record["schema_version"] != 2 or not variants):
+            raise ValueError(
+                f"{path.relative_to(ROOT)} requires version 2 and nonempty variants"
+            )
+        if not isinstance(variants, dict):
+            raise ValueError("variants must be an object")
+        assigned = set()
+        for key, entry in variants.items():
+            if (
+                not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", key)
+                or key == "general"
+            ):
+                raise ValueError("invalid variant ID")
+            if not isinstance(entry, dict) or set(entry) != {
+                "sizes",
+                "quality",
+                "source",
+                "file",
+            }:
+                raise ValueError("invalid variant fields")
+            sizes = entry["sizes"]
+            if (
+                not isinstance(sizes, list)
+                or not sizes
+                or any(not isinstance(size, str) or not size for size in sizes)
+            ):
+                raise ValueError("invalid variant sizes")
+            if len(set(sizes)) != len(sizes) or assigned.intersection(sizes):
+                raise ValueError("duplicate variant size assignment")
+            assigned.update(sizes)
+            if independent:
+                known = {
+                    size.get("label") or size.get("short_label")
+                    for size in record["sizes"]
+                }
+                if not set(sizes) <= known:
+                    raise ValueError("unknown variant size")
+            if entry["quality"] not in QUALITIES or entry["source"] not in SOURCES:
+                raise ValueError("invalid variant quality or source")
+            if entry["file"] != f"variants/{key}.svg":
+                raise ValueError("invalid variant file path")
+            variant_path = path.parent / entry["file"]
+            referenced_outlines.add(variant_path)
+            if entry["quality"] == "unusable" and variant_path in file_set:
+                raise ValueError("unusable variant must not have an outline")
+            if entry["quality"] != "unusable":
+                if variant_path not in file_set:
+                    raise ValueError(
+                        f"missing variant outline: {variant_path.relative_to(ROOT)}"
+                    )
+                validate_outline(variant_path, require_main_length=True)
         outline = path.with_name("outline.svg")
+        referenced_outlines.add(outline)
         if quality == "unusable" and outline in file_set:
             raise ValueError(
                 f"{outline.relative_to(ROOT)} must be omitted for an unusable record"
@@ -442,23 +516,22 @@ def build_manifest(version: str, files: list[Path]) -> dict:
         if quality != "unusable":
             validate_outline(outline, require_main_length=not independent)
 
-    metadata_directories = {path.parent for path in metadata_files}
     orphaned_outlines = [
         path
         for path in files
-        if path.name == "outline.svg" and path.parent not in metadata_directories
+        if path.suffix == ".svg" and path not in referenced_outlines
     ]
     if orphaned_outlines:
         raise ValueError(f"{orphaned_outlines[0].relative_to(ROOT)} has no metadata")
 
-    if len(schema_versions) != 1 or not metadata_files:
-        raise ValueError("dataset must contain records with one schema version")
+    if not metadata_files:
+        raise ValueError("dataset must contain records")
 
     catalog = json.loads((ROOT / "catalog_source.json").read_text(encoding="utf-8"))
     catalog["url"] = catalog.pop("url_template").format(version=catalog["version"])
     return {
         "dataset_version": version,
-        "schema_version": schema_versions.pop(),
+        "schema_version": max(schema_versions),
         "license": "CC0-1.0",
         "rights_notice": "dataset/NOTICE.md",
         "catalog": catalog,
@@ -473,7 +546,9 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     }
 
 
-def record_changes(before: dict[str, str], after: dict[str, str]) -> tuple[int, int, int]:
+def record_changes(
+    before: dict[str, str], after: dict[str, str]
+) -> tuple[int, int, int]:
     before_records = {
         Path(name).parent for name in before if name.endswith("/metadata.json")
     }
@@ -586,7 +661,9 @@ def verify_uploaded_release(version: str, expected_commit: str) -> None:
             cwd=ROOT,
             check=True,
         )
-        verify_release_assets(version, Path(directory), expected_commit, expected_digest)
+        verify_release_assets(
+            version, Path(directory), expected_commit, expected_digest
+        )
 
 
 def ensure_publishable() -> str:

@@ -23,6 +23,7 @@
     button.approve { color:var(--bg); border-color:var(--good); background:var(--good); }
     button.reject { color:var(--bg); border-color:var(--bad); background:var(--bad); }
     button:disabled { cursor:not-allowed; opacity:.45; }
+    .rating-options[hidden] { display:none; }
     .rating-options { display:grid; grid-template-columns:repeat(3,1fr); flex:1 1 18rem; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
     .rating-options button { border:0; border-radius:0; white-space:nowrap; }
     .rating-options button + button { border-left:1px solid var(--border); }
@@ -59,7 +60,7 @@
 
     async function decide(itemId, decision, rating) {
       try {
-        const query = decision === 'approve' ? `?rating=${encodeURIComponent(rating)}` : '';
+        const query = decision === 'approve' && rating ? `?rating=${encodeURIComponent(rating)}` : '';
         await request(`/api/moderation/submissions/${encodeURIComponent(itemId)}/${decision}${query}`, {method:'POST'});
         await load();
       } catch (error) { status.textContent = error.message; }
@@ -93,6 +94,11 @@
           button.addEventListener('click', () => setRating(rating));
         }
         setRating(selectedRating);
+        if (item.variants?.length) {
+          article.querySelector('.rating-options').hidden = true;
+          article.querySelector('.approve').textContent = 'Accept product';
+          selectedRating = null;
+        }
         if (item.source_url) article.querySelector('.source').src = item.source_url;
         else {
           article.querySelector('.source').closest('figure').remove();
@@ -100,6 +106,20 @@
         }
         if (item.outline_url) article.querySelector('.outline').src = item.outline_url;
         else article.querySelector('.outline-figure').remove();
+        for (const variant of item.variants || []) {
+          const heading = document.createElement('h3');
+          heading.textContent = `${variant.label} · ${variant.quality.replace('_', ' ')}`;
+          const previews = document.createElement('div'); previews.className = 'images';
+          for (const [caption, url] of [['Source', variant.source_url], ['Normalized outline', variant.outline_url]]) {
+            if (!url) continue;
+            const figure = document.createElement('figure');
+            const title = document.createElement('figcaption'); title.textContent = caption;
+            const image = document.createElement('img'); image.src = url; image.alt = `${variant.label} ${caption}`;
+            figure.append(title, image); previews.append(figure);
+          }
+          article.insertBefore(heading, article.querySelector('.actions'));
+          article.insertBefore(previews, article.querySelector('.actions'));
+        }
         article.querySelector('.approve').addEventListener('click', () =>
           decide(item.item_id, 'approve', selectedRating));
         article.querySelector('.reject').addEventListener('click', () => decide(item.item_id, 'reject'));

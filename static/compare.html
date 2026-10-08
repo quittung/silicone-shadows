@@ -465,7 +465,7 @@
         for (let start = 0; start < entries.length && !operation.stopped; start += LOAD_BATCH_SIZE) {
           const batch = entries.slice(start, start + LOAD_BATCH_SIZE);
           const loaded = await Promise.race([
-            Promise.allSettled(batch.map(({ product }) => loadOutline(product.svg_url))),
+            Promise.allSettled(batch.map(({ product, size }) => loadOutline(size.svg_url || product.svg_url))),
             operation.stopPromise,
           ]);
           if (operation.stopped || !loaded) break;
@@ -626,8 +626,9 @@
     }
 
     function addObject(product, size, loaded, color) {
-      const start = product.main_length.start;
-      const end = product.main_length.end;
+      const line = size.main_length || product.main_length;
+      const start = line.start;
+      const end = line.end;
       const [x, y] = screenToWorld(
         wrap.clientWidth / 2 + (objects.length % 5) * 16,
         wrap.clientHeight / 2 + (objects.length % 5) * 12,
@@ -792,7 +793,7 @@
       }
       try {
         setStatus('Loading outline…');
-        const loaded = await loadOutline(product.svg_url);
+        const loaded = await loadOutline(size.svg_url || product.svg_url);
         const color = nextColor();
         const object = addObject(product, size, loaded, color);
         placeObjects([object]);
@@ -839,7 +840,7 @@
       for (let start = 0; start < tasks.length && !operation.stopped; start += LOAD_BATCH_SIZE) {
         const batch = tasks.slice(start, start + LOAD_BATCH_SIZE);
         const loaded = await Promise.race([
-          Promise.allSettled(batch.map(({ product }) => loadOutline(product.svg_url))),
+          Promise.allSettled(batch.map(({ product, size }) => loadOutline(size.svg_url || product.svg_url))),
           operation.stopPromise,
         ]);
         if (operation.stopped || !loaded) break;
@@ -876,7 +877,7 @@
     }
 
     function objectScale(object) {
-      const line = object.product.main_length;
+      const line = object.size.main_length || object.product.main_length;
       const pixels = Math.hypot(
         line.end[0] - line.start[0], line.end[1] - line.start[1],
       );
@@ -979,7 +980,7 @@
         }
         ctx.fillStyle = object.color;
         ctx.fill(object.path);
-        if (object.product.rating === 'bad_perspective') {
+        if ((object.size.rating || object.product.rating) === 'bad_perspective') {
           ctx.filter = 'none';
           ctx.save();
           ctx.clip(object.path);
@@ -1038,7 +1039,7 @@
 
     function outlineAxisEnds(object) {
       if (object.axisEnds) return object.axisEnds;
-      const { start, end } = object.product.main_length;
+      const { start, end } = object.size.main_length || object.product.main_length;
       const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
       const ux = (end[0] - start[0]) / length, uy = (end[1] - start[1]) / length;
       const point = t => [object.midpoint[0] + ux * t, object.midpoint[1] + uy * t];
@@ -1222,7 +1223,7 @@
       for (const object of objects.slice(start, end).reverse()) {
         const layer = document.createElement('div');
         layer.className = `layer${object === selected ? ' selected' : ''}`;
-        const approximate = object.product.rating === 'bad_perspective';
+        const approximate = (object.size.rating || object.product.rating) === 'bad_perspective';
         const swatch = document.createElement('span');
         swatch.className = `swatch${approximate ? ' approximate' : ''}`;
         swatch.style.backgroundColor = object.color;

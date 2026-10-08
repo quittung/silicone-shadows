@@ -9,23 +9,21 @@ from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from PIL import Image, ImageOps
 
-from outline import trace_aligned_svg
 
 from ..artifacts import (
     atomic_bytes,
     atomic_image,
     atomic_json,
-    final_mask,
     length_preview,
     read_state,
     svg_main_length,
     validate_length,
 )
+from .. import variants as variant_store
 from ..hosted import ClaimError, User
 from ..models import GuestMetadata, IndependentUpdate, PrefetchSelection, ReviewState
 from ..workspace import (
@@ -105,9 +103,17 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         v: str | None = None,
         show_length: bool = False,
         invert_colors: bool = False,
+        variant: str = "",
     ) -> Response:
         record = workspace.independent_records().get(record_id)
-        path = record[1] / "outline.svg" if record else None
+        if variant and (not record or variant not in record[0].get("variants", {})):
+            raise HTTPException(status_code=404, detail="unknown variant")
+        path = (
+            record[1]
+            / (record[0]["variants"][variant]["file"] if variant else "outline.svg")
+            if record
+            else None
+        )
         if not path or not path.is_file():
             raise HTTPException(status_code=404, detail="outline does not exist")
         headers = {
@@ -225,9 +231,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             "product_types": workspace.breakdown(records, "pt"),
         }
 
-    def build_comparison_snapshot() -> tuple[
-        bytes, str, dict[str, tuple[Path, str]]
-    ]:
+    def build_comparison_snapshot() -> tuple[bytes, str, dict[str, tuple[Path, str]]]:
         def largest_circumference(*values: object) -> float | int | None:
             measurements = [
                 value
@@ -250,7 +254,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 continue
             product = record["product"]
             outline = record["directory"] / "outline.svg"
-            main_length = svg_main_length(outline)
+            metadata = workspace.published_record(product)[0]
+            available = variant_store.published_entries(metadata, record["directory"])
+            representative = available[0][2]
+            main_length = svg_main_length(representative)
             vendor_url = product.get("link")
             if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
                 "http",
@@ -276,7 +283,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
                     ),
                     "main_length": main_length.model_dump(mode="json"),
-                    "svg_url": outline_url("catalog", product["id"], outline),
+                    "svg_url": outline_url("catalog", product["id"], representative),
                     "sizes": [
                         {
                             "index": index,
@@ -299,8 +306,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         inches_per_unit = {"in": 1, "cm": 1 / 2.54, "mm": 1 / 25.4}
         for record_id, (metadata, directory) in workspace.independent_records().items():
             outline = directory / "outline.svg"
-            if metadata.get("quality") == "unusable" or not outline.is_file():
+            available = variant_store.published_entries(metadata, directory)
+            if not available:
                 continue
+            outline = available[0][2]
             sizes = []
             for index, size in enumerate(metadata.get("sizes", [])):
                 conversion = inches_per_unit.get(size.get("unit"))
@@ -355,6 +364,51 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "sizes": sizes,
                 }
             )
+        # Resolve each size once. Unassigned sizes require a usable general fallback.
+        for product in products:
+            if isinstance(product["id"], int):
+                catalog_product = workspace.catalog_by_id[str(product["id"])]
+                metadata, directory = workspace.published_record(catalog_product)
+                source_sizes = catalog_product.get("sz", {}).get("s", [])
+                # Existing indexes refer to the measured subset for catalog records.
+                measured = [
+                    size
+                    for size in source_sizes
+                    if isinstance(size.get("len"), (int, float)) and size["len"] > 0
+                ]
+                keys = [variant_store.size_key(size) for size in measured]
+            else:
+                metadata, directory = workspace.independent_records()[product["id"]]
+                keys = [
+                    variant_store.size_key(size, True)
+                    for size in metadata.get("sizes", [])
+                ]
+            # Full labels identify sizes; entries remain stable when the catalog is reordered.
+            variant_store.validate_variants(metadata.get("variants", {}))
+            assignments = {
+                size: (key, entry)
+                for key, entry in metadata.get("variants", {}).items()
+                for size in entry["sizes"]
+            }
+            resolved = []
+            for size in product["sizes"]:
+                key = keys[size["index"]]
+                assignment = assignments.get(key)
+                if assignment:
+                    variant_id, entry = assignment
+                    path = directory / entry["file"]
+                else:
+                    variant_id, entry, path = "", metadata, directory / "outline.svg"
+                if entry.get("quality") == "unusable" or not path.is_file():
+                    continue
+                size.update(
+                    svg_url=outline_url("size", f"{product['id']}:{variant_id}", path),
+                    main_length=svg_main_length(path).model_dump(mode="json"),
+                    rating=entry["quality"],
+                )
+                resolved.append(size)
+            product["sizes"] = resolved
+        products = [product for product in products if product["sizes"]]
         products.sort(
             key=lambda product: (product["vn"], product["n"], str(product["id"]))
         )
@@ -363,9 +417,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         ).encode()
         return body, f'"{hashlib.sha256(body).hexdigest()}"', outlines
 
-    comparison_body, comparison_etag, comparison_outlines = (
-        build_comparison_snapshot()
-    )
+    comparison_body, comparison_etag, comparison_outlines = build_comparison_snapshot()
 
     @app.get("/api/comparison/products")
     def comparison_products(request: Request) -> Response:
@@ -426,7 +478,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.post("/api/items/{item_id}/prepare")
     def prepare_item(
-        item_id: str, request: Request, allow_invalid_certificate: bool = False
+        item_id: str,
+        request: Request,
+        allow_invalid_certificate: bool = False,
+        variant: str = "",
     ) -> dict:
         claim_expires_at = None
         if store and store.submission(item_id):
@@ -444,9 +499,34 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             workspace.select_prefetch(request.state.user.id, [item_id])
         else:
             workspace.set_active(item_id)
+        selected_paths = variant_store.paths(workspace, item_id, variant)
+        if selected_paths["metadata"].is_file():
+            raw = json.loads(selected_paths["metadata"].read_text())
+            if raw.get("waiting_image") and not selected_paths["source"].exists():
+                return {
+                    "id": item_id,
+                    "blank": True,
+                    "state": read_state(selected_paths["metadata"]).model_dump(
+                        mode="json"
+                    ),
+                    "claim_expires_at": claim_expires_at,
+                }
+            if (
+                raw.get("preserved")
+                and selected_paths["svg"].is_file()
+                and not selected_paths["source"].is_file()
+            ):
+                return {
+                    "id": item_id,
+                    "state": read_state(selected_paths["metadata"]).model_dump(
+                        mode="json"
+                    ),
+                    "preview_only": True,
+                    "preview_url": f"/api/items/{quote(item_id, safe='')}/file/svg?variant={quote(variant)}",
+                }
         try:
             paths, width, height = workspace.prepare(
-                item_id, allow_invalid_certificate
+                item_id, allow_invalid_certificate, variant
             )
         except CatalogImageUnavailable as error:
             return {
@@ -460,12 +540,13 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             "id": item_id,
             "width": width,
             "height": height,
+            "has_alternative": paths["alternative"].exists(),
             "state": read_state(paths["metadata"]).model_dump(mode="json"),
             "claim_expires_at": claim_expires_at,
-            "source_url": f"/api/items/{encoded_id}/file/source",
-            "rembg_url": f"/api/items/{encoded_id}/file/rembg",
+            "source_url": f"/api/items/{encoded_id}/file/source?variant={quote(variant)}",
+            "rembg_url": f"/api/items/{encoded_id}/file/rembg?variant={quote(variant)}",
             "edits_url": (
-                f"/api/items/{encoded_id}/file/edits"
+                f"/api/items/{encoded_id}/file/edits?variant={quote(variant)}"
                 if paths["edits"].exists()
                 else None
             ),
@@ -479,12 +560,13 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         top: int = Form(...),
         right: int = Form(...),
         bottom: int = Form(...),
+        variant: str = "",
     ) -> Response:
         if store:
             require_claim(item_id, request.state.user)
         else:
             workspace.set_active(item_id)
-        paths, width, height = workspace.prepare(item_id)
+        paths, width, height = workspace.prepare(item_id, variant=variant)
         if not (0 <= left < right <= width and 0 <= top < bottom <= height):
             raise HTTPException(status_code=400, detail="crop is outside the image")
         with Image.open(paths["source"]) as image:
@@ -509,6 +591,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             workspace.discard_work(item_id)
         else:
             workspace.set_active(item_id)
+        variant_store.initialize(workspace, item_id)
         source = workspace.source_for(item_id)
         paths = workspace.paths(item_id)
         with workspace.session_lock:
@@ -530,6 +613,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         v: str | None = None,
         show_length: bool = False,
         invert_colors: bool = False,
+        variant: str = "",
     ) -> Response:
         product = workspace.catalog_by_id.get(catalog_id)
         published = workspace.published_record(product) if product else None
@@ -537,7 +621,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             raise HTTPException(
                 status_code=404, detail="published product does not exist"
             )
-        path = published[1] / "outline.svg"
+        entry = published[0].get("variants", {}).get(variant) if variant else None
+        if variant and not entry:
+            raise HTTPException(status_code=404, detail="unknown variant")
+        path = published[1] / entry["file"] if entry else published[1] / "outline.svg"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="product has no usable outline")
         headers = {
@@ -557,7 +644,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.post("/api/items/{item_id}/alternative")
     async def replace_source(
-        item_id: str, request: Request, image: UploadFile = File()
+        item_id: str, request: Request, image: UploadFile = File(), variant: str = ""
     ) -> dict:
         if store:
             require_claim(item_id, request.state.user)
@@ -589,7 +676,8 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 status_code=400, detail="invalid alternative image"
             ) from error
 
-        paths = workspace.paths(item_id)
+        variant_store.initialize(workspace, item_id)
+        paths = variant_store.paths(workspace, item_id, variant)
         re_review = (
             bool(workspace.published_item(item_id))
             or read_state(paths["metadata"]).re_review
@@ -599,7 +687,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             workspace.reset_review(
                 paths, item_id, paths["alternative"].name, re_review=re_review
             )
-        _, width, height = workspace.prepare(item_id)
+        _, width, height = workspace.prepare(item_id, variant=variant)
         return {
             "item": workspace.item_summary(
                 item_id,
@@ -612,12 +700,15 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         }
 
     @app.delete("/api/items/{item_id}/alternative")
-    def restore_catalog_source(item_id: str, request: Request) -> dict:
+    def restore_catalog_source(
+        item_id: str, request: Request, variant: str = ""
+    ) -> dict:
         if store:
             require_claim(item_id, request.state.user)
         else:
             workspace.set_active(item_id)
-        paths = workspace.paths(item_id)
+        variant_store.initialize(workspace, item_id)
+        paths = variant_store.paths(workspace, item_id, variant)
         if not paths["alternative"].exists():
             raise HTTPException(
                 status_code=400, detail="no alternative image is active"
@@ -634,7 +725,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             workspace.reset_review(
                 paths, item_id, catalog_source.name, re_review=re_review
             )
-        _, width, height = workspace.prepare(item_id)
+        _, width, height = workspace.prepare(item_id, variant=variant)
         return {
             "item": workspace.item_summary(
                 item_id,
@@ -647,13 +738,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         }
 
     @app.get("/api/items/{item_id}/file/{kind}")
-    def get_file(item_id: str, kind: str, request: Request) -> FileResponse:
+    def get_file(
+        item_id: str, kind: str, request: Request, variant: str = ""
+    ) -> FileResponse:
         if store:
             require_claim(item_id, request.state.user)
-        workspace.source_for(item_id)
         if kind not in {"source", "rembg", "edits", "mask", "cutout", "svg"}:
             raise HTTPException(status_code=404, detail="unknown artifact")
-        path = workspace.paths(item_id)[kind]
+        path = variant_store.paths(workspace, item_id, variant)[kind]
         if not path.is_file():
             raise HTTPException(status_code=404, detail="artifact does not exist")
         return FileResponse(path, headers={"Cache-Control": "no-store"})
@@ -665,28 +757,41 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         state_json: str = Form(),
         download_only: bool = Form(False),
         edits: UploadFile | None = File(default=None),
+        variant: str = "",
     ) -> dict | Response:
         if store:
             require_claim(item_id, request.state.user)
         else:
             workspace.set_active(item_id)
-        paths, width, height = workspace.prepare(item_id)
+        paths = variant_store.paths(workspace, item_id, variant)
+        raw = (
+            json.loads(paths["metadata"].read_text())
+            if paths["metadata"].exists()
+            else {}
+        )
+        preserved = (
+            raw.get("preserved")
+            and paths["svg"].is_file()
+            and not paths["source"].is_file()
+        )
+        if preserved:
+            width = height = 0
+        else:
+            paths, width, height = workspace.prepare(item_id, variant=variant)
         try:
             state = ReviewState.model_validate_json(state_json)
-            validate_length(state.main_length, width, height)
+            if not preserved:
+                validate_length(state.main_length, width, height)
         except (ValueError, json.JSONDecodeError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-        if store and state.status != "done":
-            raise HTTPException(
-                status_code=400, detail="hosted mode does not save drafts"
-            )
         if state.status == "done" and state.rating is None:
             raise HTTPException(status_code=400, detail="a rating is required")
         if (
             state.status == "done"
             and state.rating != "unusable"
             and state.main_length is None
+            and not preserved
         ):
             raise HTTPException(
                 status_code=400, detail="usable items require a main-length line"
@@ -713,76 +818,108 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 )
             atomic_image(paths["edits"], paint)
 
-        if state.status == "done" and state.rating == "unusable":
-            for kind in ("mask", "cutout", "svg"):
-                paths[kind].unlink(missing_ok=True)
-        elif state.status == "done":
-            try:
-                mask = final_mask(paths["rembg"], paths["edits"], state.alpha_threshold)
-                mask_image = Image.fromarray(mask.astype(np.uint8) * 255)
-                atomic_image(paths["mask"], mask_image)
-                with Image.open(paths["source"]) as image:
-                    cutout = image.convert("RGBA")
-                cutout.putalpha(mask_image)
-                atomic_image(paths["cutout"], cutout)
-                temporary_svg = paths["directory"] / ".outline.svg.tmp"
-                trace_aligned_svg(
-                    mask,
-                    temporary_svg,
-                    state.main_length.start,
-                    state.main_length.end,
-                )
-                temporary_svg.replace(paths["svg"])
-            except (OSError, ValueError) as error:
-                raise HTTPException(status_code=400, detail=str(error)) from error
-
-        if state.status == "done":
-            state.re_review = False
-        source_path = workspace.source_for(item_id)
-        source_kind = "alternative" if paths["alternative"].exists() else "catalog"
+        snapshots = {}
         if download_only:
-            if state.rating == "unusable":
-                raise HTTPException(
-                    status_code=400,
-                    detail="an unusable item has no silhouette to download",
+            for key in [""] + list(
+                variant_store.collection(workspace, item_id)["variants"]
+            ):
+                metadata_path = variant_store.paths(workspace, item_id, key)["metadata"]
+                snapshots[metadata_path] = (
+                    metadata_path.read_bytes() if metadata_path.exists() else None
                 )
-            archive = BytesIO()
-            products = workspace.catalog_by_stem.get(item_id, [])
-            with zipfile.ZipFile(
-                archive, "w", compression=zipfile.ZIP_DEFLATED
-            ) as bundle:
-                documents = [
-                    (
-                        "metadata.json"
-                        if len(products) == 1
-                        else f"metadata-{product['id']}.json",
-                        workspace.catalog_download_document(
-                            product, state, source_kind
-                        ),
-                    )
-                    for product in products
-                ]
-                for name, metadata in documents:
-                    bundle.writestr(
-                        name,
-                        json.dumps(metadata, indent=2) + "\n",
-                    )
-                bundle.writestr("outline.svg", paths["svg"].read_bytes())
-            return Response(
-                archive.getvalue(),
-                media_type="application/zip",
-                headers={
-                    "Cache-Control": "no-store",
-                    "Content-Disposition": f'attachment; filename="{item_id}.zip"',
-                },
-            )
-        document = {
+        source_kind = raw.get(
+            "outline_source",
+            "alternative" if paths["alternative"].exists() else "catalog",
+        )
+        document = raw | {
             "version": 1,
             "id": item_id,
-            "source": source_path.name,
+            "outline_source": source_kind,
             **state.model_dump(mode="json"),
         }
-        if store:
+        try:
+            atomic_json(paths["metadata"], document)
+            entries = None
+            if state.status == "done":
+                try:
+                    general_state, entries = variant_store.finish_collection(
+                        workspace, item_id
+                    )
+                except ValueError as error:
+                    raise HTTPException(status_code=400, detail=str(error)) from error
+                state = general_state
+                if not download_only:
+                    state.re_review = False
+                root_paths = workspace.paths(item_id)
+                root_raw = (
+                    json.loads(root_paths["metadata"].read_text())
+                    if root_paths["metadata"].exists()
+                    else {}
+                )
+                atomic_json(
+                    root_paths["metadata"], root_raw | state.model_dump(mode="json")
+                )
+                source_kind = root_raw.get(
+                    "outline_source",
+                    "alternative" if root_paths["alternative"].exists() else "catalog",
+                )
+                paths = root_paths
+            if download_only:
+                if state.rating == "unusable" and not any(
+                    e["quality"] != "unusable" for e in (entries or {}).values()
+                ):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="an unusable item has no silhouette to download",
+                    )
+                archive = BytesIO()
+                products = workspace.catalog_by_stem.get(item_id, [])
+                with zipfile.ZipFile(
+                    archive, "w", compression=zipfile.ZIP_DEFLATED
+                ) as bundle:
+                    documents = [
+                        (
+                            "metadata.json"
+                            if len(products) == 1
+                            else f"metadata-{product['id']}.json",
+                            workspace.catalog_download_document(
+                                product, state, source_kind
+                            ),
+                        )
+                        for product in products
+                    ]
+                    for name, metadata in documents:
+                        if entries:
+                            metadata.update(schema_version=2, variants=entries)
+                        bundle.writestr(
+                            name,
+                            json.dumps(metadata, indent=2) + "\n",
+                        )
+                    if state.rating != "unusable":
+                        bundle.writestr("outline.svg", paths["svg"].read_bytes())
+                    for key, entry in (entries or {}).items():
+                        if entry["quality"] != "unusable":
+                            bundle.writestr(
+                                entry["file"],
+                                variant_store.paths(workspace, item_id, key)[
+                                    "svg"
+                                ].read_bytes(),
+                            )
+                return Response(
+                    archive.getvalue(),
+                    media_type="application/zip",
+                    headers={
+                        "Cache-Control": "no-store",
+                        "Content-Disposition": f'attachment; filename="{item_id}.zip"',
+                    },
+                )
+        finally:
+            for metadata_path, previous in snapshots.items():
+                if previous is None:
+                    metadata_path.unlink(missing_ok=True)
+                else:
+                    atomic_bytes(metadata_path, previous)
+        if store and state.status == "done":
             if store.submission(item_id):
                 raise HTTPException(
                     status_code=409, detail="item is already pending review"
@@ -798,13 +935,36 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "source": source_kind,
                     "state": state.model_dump(mode="json"),
                     "records": [
-                        workspace.record_document(product, state, source_kind)
+                        (
+                            workspace.record_document(product, state, source_kind)
+                            | (
+                                {"schema_version": 2, "variants": entries}
+                                if entries
+                                else {}
+                            )
+                        )
                         for product in workspace.catalog_by_stem.get(item_id, [])
                     ],
                 },
             )
             if state.rating != "unusable":
                 atomic_bytes(pending["svg"], paths["svg"].read_bytes())
+            for key, entry in (entries or {}).items():
+                if entry["quality"] != "unusable":
+                    target = pending["directory"] / "variants" / key
+                    atomic_bytes(
+                        target / "outline.svg",
+                        variant_store.paths(workspace, item_id, key)[
+                            "svg"
+                        ].read_bytes(),
+                    )
+                    alternative = variant_store.paths(workspace, item_id, key)[
+                        "alternative"
+                    ]
+                    if alternative.exists():
+                        atomic_bytes(
+                            target / "alternative.png", alternative.read_bytes()
+                        )
             if paths["alternative"].exists():
                 atomic_bytes(pending["alternative"], paths["alternative"].read_bytes())
             try:
@@ -819,15 +979,16 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 raise
             workspace.select_prefetch(request.state.user.id, [])
             workspace.discard_work(item_id)
-        else:
-            atomic_json(paths["metadata"], document)
         if state.status == "done" and not store:
             workspace.publish(
                 item_id,
                 state,
                 paths["svg"] if state.rating != "unusable" else None,
+                variants=entries,
+                variants_directory=paths["directory"],
             )
-        elif not store and not state.re_review:
+            reload_comparison(request)
+        elif not store and not state.re_review and not variant:
             workspace.unpublish(item_id)
         return workspace.item_summary(
             item_id,

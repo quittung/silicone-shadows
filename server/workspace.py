@@ -234,7 +234,10 @@ class Workspace:
                 key = product["id"]
                 path = self.record_paths[key]
                 metadata = path / "metadata.json"
-                if metadata.exists() and json.loads(metadata.read_text()).get("catalog_id") != key:
+                if (
+                    metadata.exists()
+                    and json.loads(metadata.read_text()).get("catalog_id") != key
+                ):
                     self.record_paths[key] = path.with_name(f"{path.name}--{key}")
 
     def paths(self, item_id: str) -> dict[str, Path]:
@@ -293,6 +296,8 @@ class Workspace:
                 and paths["rembg"].is_file()
             )
             if keep_catalog_cache:
+                shutil.rmtree(paths["directory"] / "variants", ignore_errors=True)
+                (paths["directory"] / "variants.json").unlink(missing_ok=True)
                 for kind in ("edits", "mask", "cutout", "svg", "metadata"):
                     paths[kind].unlink(missing_ok=True)
                 os.utime(paths["directory"])
@@ -376,7 +381,7 @@ class Workspace:
         return items
 
     def download_source(
-        self, item_id: str, allow_invalid_certificate: bool = False
+        self, item_id: str, allow_invalid_certificate: bool = False, variant: str = ""
     ) -> Path:
         try:
             target = self.catalog_sources[item_id]
@@ -392,9 +397,7 @@ class Workspace:
             if target.exists():
                 return target
             try:
-                url = urljoin(
-                    self.image_base_url.rstrip("/") + "/", pic.lstrip("/")
-                )
+                url = urljoin(self.image_base_url.rstrip("/") + "/", pic.lstrip("/"))
                 base_host = urlparse(self.image_base_url).hostname
                 if (
                     urlparse(url).scheme != "https"
@@ -430,22 +433,35 @@ class Workspace:
         return target
 
     def source_for(
-        self, item_id: str, allow_invalid_certificate: bool = False
+        self, item_id: str, allow_invalid_certificate: bool = False, variant: str = ""
     ) -> Path:
         self.require_item(item_id)
-        alternative = self.paths(item_id)["alternative"]
+        from .variants import paths as outline_paths
+
+        alternative = outline_paths(self, item_id, variant)["alternative"]
         if alternative.exists():
             return alternative
+        if variant:
+            prepared_source = outline_paths(self, item_id, variant)["source"]
+            if prepared_source.is_file():
+                return prepared_source
+            raise HTTPException(
+                status_code=400, detail="paste or drop an image for this variant first"
+            )
         source = self.sources().get(item_id)
-        return source if source else self.download_source(
-            item_id, allow_invalid_certificate
+        return (
+            source
+            if source
+            else self.download_source(item_id, allow_invalid_certificate)
         )
 
     def prepare(
-        self, item_id: str, allow_invalid_certificate: bool = False
+        self, item_id: str, allow_invalid_certificate: bool = False, variant: str = ""
     ) -> tuple[dict[str, Path], int, int]:
-        source = self.source_for(item_id, allow_invalid_certificate)
-        paths = self.paths(item_id)
+        from .variants import paths as outline_paths
+
+        source = self.source_for(item_id, allow_invalid_certificate, variant)
+        paths = outline_paths(self, item_id, variant)
         paths["directory"].mkdir(parents=True, exist_ok=True)
 
         if not paths["source"].exists() or not paths["rembg"].exists():
@@ -469,6 +485,7 @@ class Workspace:
         for product in self.catalog_by_stem.get(item_id, []):
             directory = self.record_paths.get(product["id"])
             if directory:
+                shutil.rmtree(directory / "variants", ignore_errors=True)
                 for name in ("metadata.json", "outline.svg"):
                     (directory / name).unlink(missing_ok=True)
 
@@ -618,24 +635,32 @@ class Workspace:
         state: ReviewState,
         svg_path: Path | None,
         source: str | None = None,
+        variants: dict | None = None,
+        variants_directory: Path | None = None,
     ) -> None:
+        from .variants import validate_variants, write_variants
+
+        if variants is not None:
+            validate_variants(variants)
         for product in self.catalog_by_stem.get(item_id, []):
             directory = self.record_paths.get(product["id"])
             if not directory:
                 continue
-            atomic_json(
-                directory / "metadata.json",
-                self.record_document(
-                    product,
-                    state,
-                    source
-                    or (
-                        "alternative"
-                        if self.paths(item_id)["alternative"].exists()
-                        else "catalog"
-                    ),
+            document = self.record_document(
+                product,
+                state,
+                source
+                or (
+                    "alternative"
+                    if self.paths(item_id)["alternative"].exists()
+                    else "catalog"
                 ),
             )
+            if variants:
+                document.update(schema_version=2, variants=variants)
+            if variants is not None:
+                write_variants(directory, variants, variants_directory)
+            atomic_json(directory / "metadata.json", document)
             published_svg = directory / "outline.svg"
             if svg_path:
                 atomic_bytes(published_svg, svg_path.read_bytes())
@@ -670,7 +695,16 @@ class Workspace:
         existing = self.independent_records().get(record_id)
         if not existing:
             raise ValueError("independent record does not exist")
-        _, old_directory = existing
+        from .variants import size_key, validate_variants
+
+        old_metadata, old_directory = existing
+        document = self.independent_document(record_id, metadata)
+        if old_metadata.get("variants"):
+            validate_variants(
+                old_metadata["variants"],
+                {size_key(size.model_dump(), True) for size in metadata.sizes},
+            )
+            document.update(schema_version=2, variants=old_metadata["variants"])
         new_directory = (
             self.dataset_dir
             / slug(metadata.vendor)
@@ -684,10 +718,7 @@ class Workspace:
                 )
             new_directory.parent.mkdir(parents=True, exist_ok=True)
             old_directory.replace(new_directory)
-        atomic_json(
-            new_directory / "metadata.json",
-            self.independent_document(record_id, metadata),
-        )
+        atomic_json(new_directory / "metadata.json", document)
         return new_directory
 
     def reset_review(
@@ -828,6 +859,8 @@ class Workspace:
         }
 
     def catalog_records(self) -> list[dict]:
+        from .variants import published_entries
+
         records = []
         for product in self.catalog:
             item_id = self.catalog_item_ids[product["pic"]]
@@ -858,8 +891,7 @@ class Workspace:
                     "has_measurements": has_measurements,
                     "comparable": (
                         bool(published)
-                        and rating != "unusable"
-                        and (directory / "outline.svg").is_file()
+                        and bool(published_entries(metadata, directory))
                         and bool(sizes)
                     ),
                 }

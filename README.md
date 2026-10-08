@@ -82,3 +82,51 @@ sponsored by Fantasy Toybox or any represented vendor. If you have concerns
 about the accuracy, attribution, provenance, or inclusion of material—or want
 something removed—please [open an issue](https://github.com/quittung/silicone-shadows/issues)
 or email [shadows@qtng.dev](mailto:shadows@qtng.dev).
+
+## Outline variants
+
+Version 1 records remain supported without changes. Records with size-specific
+outlines use `schema_version: 2` and an optional `variants` object:
+
+```json
+{
+  "schema_version": 2,
+  "catalog_id": 4794,
+  "quality": "good",
+  "source": "catalog",
+  "variants": {
+    "medium-large": {
+      "sizes": ["Medium", "Large"],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/medium-large.svg"
+    }
+  }
+}
+```
+
+The top-level quality and source describe the general `outline.svg`. Specific
+outlines live in `variants/<variant-id>.svg`. Sizes use exact full catalog size
+labels (`sl`, falling back to `ShortLabel`), or `label` for independent records;
+these assignments do not depend on array order. A size may belong to at most
+one variant. Each outline is uniformly scaled to the chosen size's usable length.
+
+A specific assignment takes precedence over the general fallback. Without an
+assignment, the general outline is used; without either usable outline, that
+size is unavailable in Compare. A product containing only specific outlines has
+no root `outline.svg` and top-level `quality: "unusable"`. The root source remains
+a required legacy field; each variant supplies its own authoritative source.
+Old readers that ignore unfamiliar fields can still use a general fallback;
+old strict version-1 validators reject version-2 records.
+
+The catalog editor's bottom-bar **Variants** button opens an outline panel.
+Radio controls select the outline to edit, and a compact size table shows
+coverage, fallback use, and missing assignments. Outline numbers are local UI
+labels, not part of the dataset. **Add outline** creates a blank canvas for a
+new size assignment; paste or drop its photo to start editing. **Change** beside
+an outline's sizes can assign selected sizes or use it as the general fallback. Draft
+images, masks, and length markers are stored separately. Save/download covers
+the entire product, and every outline must be rated and usable outlines marked
+with a length line. Hosted moderation accepts or rejects the whole product.
+Published specific outlines without local source images are retained during
+re-review; paste or drop a new photo to edit their shapes.
