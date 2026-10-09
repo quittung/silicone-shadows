@@ -214,7 +214,7 @@ class VariantsTest(unittest.TestCase):
             old,
         )
 
-    def test_hosted_accept_and_reject_apply_to_whole_product(self):
+    def hosted_clients(self):
         store = HostedStore(self.root / "state.sqlite3")
         app = create_app(
             self.images,
@@ -231,6 +231,10 @@ class VariantsTest(unittest.TestCase):
         reviewer = TestClient(app)
         token = store.create_invite("reviewer", True)
         reviewer.post(f"/invite/{token}")
+        return contributor, reviewer, store
+
+    def test_hosted_accept_and_reject_apply_to_whole_product(self):
+        contributor, reviewer, store = self.hosted_clients()
         self.assertEqual(contributor.post("/api/items/sample/prepare").status_code, 200)
         self.assertEqual(self.save(client=contributor).status_code, 200)
         self.ready_variant(client=contributor)
@@ -262,6 +266,63 @@ class VariantsTest(unittest.TestCase):
             (self.dataset / "vendor/type/sample/variants/medium-large.svg").exists()
         )
         self.assertFalse((self.root / "pending/sample").exists())
+
+    def test_moderation_overrides_each_outline_quality(self):
+        contributor, reviewer, store = self.hosted_clients()
+        contributor.post("/api/items/sample/prepare")
+        self.save(client=contributor)
+        self.ready_variant(client=contributor)
+        self.save("medium-large", done=True, client=contributor)
+        response = reviewer.post(
+            "/api/moderation/submissions/sample/approve", json={"unknown": "good"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNotNone(store.submission("sample"))
+        response = reviewer.post(
+            "/api/moderation/submissions/sample/approve",
+            json={"": "bad_perspective", "medium-large": "unusable"},
+        )
+        self.assertEqual(response.status_code, 204, response.text)
+        record = json.loads(
+            (self.dataset / "vendor/type/sample/metadata.json").read_text()
+        )
+        self.assertEqual(record["quality"], "bad_perspective")
+        self.assertEqual(record["variants"]["medium-large"]["quality"], "unusable")
+        self.assertTrue((self.dataset / "vendor/type/sample/outline.svg").exists())
+        self.assertFalse(
+            (self.dataset / "vendor/type/sample/variants/medium-large.svg").exists()
+        )
+        reviewer.post("/api/comparison/reload")
+        sizes = reviewer.get("/api/comparison/products").json()["products"][0]["sizes"]
+        self.assertEqual([size["label"] for size in sizes], ["S"])
+
+    def test_moderation_without_fallback_omits_root_source(self):
+        contributor, reviewer, _ = self.hosted_clients()
+        contributor.post("/api/items/sample/prepare")
+        self.save(client=contributor)
+        self.add(move_from="", client=contributor)
+        self.save("medium-large", done=True, client=contributor)
+        submission = reviewer.get("/api/moderation/submissions").json()["submissions"][
+            0
+        ]
+        self.assertIsNone(submission["outline_url"])
+        self.assertIsNone(submission["source_url"])
+        self.assertEqual(submission["variants"][0]["id"], "medium-large")
+        response = reviewer.post(
+            "/api/moderation/submissions/sample/approve", json={"": "good"}
+        )
+        self.assertEqual(response.status_code, 400)
+        response = reviewer.post(
+            "/api/moderation/submissions/sample/approve",
+            json={"medium-large": "bad_perspective"},
+        )
+        self.assertEqual(response.status_code, 204)
+        record = json.loads(
+            (self.dataset / "vendor/type/sample/metadata.json").read_text()
+        )
+        self.assertEqual(
+            record["variants"]["medium-large"]["quality"], "bad_perspective"
+        )
 
     def test_variant_validation_rejects_duplicate_assignments(self):
         with self.assertRaises(ValueError):

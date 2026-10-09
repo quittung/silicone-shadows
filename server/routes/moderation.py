@@ -5,7 +5,7 @@ import json
 from typing import Literal
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..artifacts import length_preview
@@ -93,6 +93,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 ):
                     variant_previews.append(
                         {
+                            "id": key,
                             "label": " + ".join(entry["sizes"]),
                             "quality": entry["quality"],
                             "outline_url": f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg?variant={quote(key)}&show_length=true"
@@ -129,6 +130,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "source_url": (
                         None
                         if row["kind"] == "independent_update"
+                        or (variant_previews and rating == "unusable")
                         else f"/api/moderation/submissions/{quote(row['item_id'], safe='')}/source"
                     ),
                 }
@@ -160,13 +162,20 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.post("/api/moderation/submissions/{item_id}/approve")
     def approve_submission(
-        item_id: str, request: Request, rating: Rating | None = None
+        item_id: str,
+        request: Request,
+        rating: Rating | None = None,
+        ratings: dict[str, Rating] | None = Body(default=None),
     ) -> Response:
         require_reviewer(request)
         submission = store.submission(item_id)
         if not submission:
             raise HTTPException(status_code=404, detail="pending submission not found")
         pending = workspace.pending_paths(item_id)
+        if ratings and submission["kind"] != "catalog":
+            raise HTTPException(
+                status_code=400, detail="outline ratings require a catalog submission"
+            )
         if rating == "unusable" and submission["kind"] != "catalog":
             raise HTTPException(
                 status_code=400,
@@ -191,15 +200,35 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 raise HTTPException(status_code=400, detail=str(error)) from error
         else:
             state = ReviewState.model_validate_json(submission["state_json"])
+            raw = json.loads(pending["metadata"].read_text())
+            entries = raw.get("records", [{}])[0].get("variants", {})
+            overrides = dict(ratings or {})
             if rating:
-                state.rating = rating
+                overrides.setdefault("", rating)
+            if set(overrides) - ({""} | set(entries)):
+                raise HTTPException(
+                    status_code=400, detail="unknown outline in rating overrides"
+                )
+            for key, quality in overrides.items():
+                outline = (
+                    pending["directory"] / "variants" / key / "outline.svg"
+                    if key
+                    else pending["svg"]
+                )
+                if quality != "unusable" and not outline.is_file():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="cannot rate a missing outline as usable",
+                    )
+                if key:
+                    entries[key]["quality"] = quality
+                else:
+                    state.rating = quality
             svg_path = pending["svg"] if state.rating != "unusable" else None
             if svg_path and not svg_path.is_file():
                 raise HTTPException(
                     status_code=500, detail="pending outline is missing"
                 )
-            raw = json.loads(pending["metadata"].read_text())
-            entries = raw.get("records", [{}])[0].get("variants", {})
             workspace.publish(
                 item_id,
                 state,

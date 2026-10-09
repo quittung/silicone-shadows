@@ -23,8 +23,9 @@
     button.approve { color:var(--bg); border-color:var(--good); background:var(--good); }
     button.reject { color:var(--bg); border-color:var(--bad); background:var(--bad); }
     button:disabled { cursor:not-allowed; opacity:.45; }
-    .rating-options[hidden] { display:none; }
-    .rating-options { display:grid; grid-template-columns:repeat(3,1fr); flex:1 1 18rem; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
+    .submitted-outline { margin:.9rem 0; }
+    .submitted-outline h3 { margin:0 0 .5rem; font-size:1rem; }
+    .rating-options { margin-top:.6rem; display:grid; grid-template-columns:repeat(3,1fr); flex:1 1 18rem; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
     .rating-options button { border:0; border-radius:0; white-space:nowrap; }
     .rating-options button + button { border-left:1px solid var(--border); }
     .rating-options button.active { background:#164b56; }
@@ -58,12 +59,61 @@
       return response.status === 204 ? null : response.json();
     }
 
-    async function decide(itemId, decision, rating) {
+    async function decide(item, decision, ratings) {
       try {
-        const query = decision === 'approve' && rating ? `?rating=${encodeURIComponent(rating)}` : '';
-        await request(`/api/moderation/submissions/${encodeURIComponent(itemId)}/${decision}${query}`, {method:'POST'});
+        const catalog = item.kind === 'catalog';
+        const query = decision === 'approve' && !catalog ? `?rating=${encodeURIComponent(ratings[''])}` : '';
+        const options = {method:'POST'};
+        if (decision === 'approve' && catalog) {
+          options.headers = {'Content-Type':'application/json'};
+          options.body = JSON.stringify(ratings);
+        }
+        await request(`/api/moderation/submissions/${encodeURIComponent(item.item_id)}/${decision}${query}`, options);
         await load();
       } catch (error) { status.textContent = error.message; }
+    }
+
+    function outlineSection(item, outline, ratings) {
+      const section = document.createElement('section');
+      section.className = 'submitted-outline';
+      if (outline.label) {
+        const heading = document.createElement('h3'); heading.textContent = outline.label;
+        section.append(heading);
+      }
+      const previews = document.createElement('div'); previews.className = 'images';
+      for (const [caption, url] of [['Source', outline.source_url], ['Normalized outline', outline.outline_url]]) {
+        if (!url) continue;
+        const figure = document.createElement('figure');
+        const title = document.createElement('figcaption'); title.textContent = caption;
+        const image = document.createElement('img'); image.src = url; image.alt = `${outline.label || 'Submitted'} ${caption}`;
+        figure.append(title, image); previews.append(figure);
+      }
+      if (previews.children.length === 1) previews.classList.add('single');
+      if (previews.children.length) section.append(previews);
+      const controls = document.createElement('div'); controls.className = 'rating-options';
+      controls.setAttribute('role', 'radiogroup');
+      controls.setAttribute('aria-label', `${outline.label || 'Outline'} quality`);
+      ratings[outline.id] = outline.quality;
+      for (const [rating, label] of [['unusable','Unusable'], ['bad_perspective','Bad perspective'], ['good','Good']]) {
+        const button = document.createElement('button'); button.textContent = label;
+        button.dataset.rating = rating; button.setAttribute('role', 'radio');
+        button.disabled = (rating === 'unusable' && item.kind !== 'catalog') ||
+          (rating !== 'unusable' && !outline.outline_url);
+        button.addEventListener('click', () => {
+          ratings[outline.id] = rating;
+          updateRating();
+        });
+        controls.append(button);
+      }
+      function updateRating() {
+        for (const button of controls.querySelectorAll('button')) {
+          const active = button.dataset.rating === ratings[outline.id];
+          button.classList.toggle('active', active);
+          button.setAttribute('aria-checked', String(active));
+        }
+      }
+      updateRating(); section.append(controls);
+      return section;
     }
 
     async function load() {
@@ -73,57 +123,29 @@
       status.textContent = data.submissions.length ? `${data.submissions.length} pending` : 'Nothing is waiting for review.';
       for (const item of data.submissions) {
         const article = document.createElement('article');
-        const names = item.products.map(product => `${product.vendor} · ${product.name}`).join(' / ');
-        article.innerHTML = `<h2></h2><div class="meta"></div><div class="images"><figure><figcaption>Source</figcaption><img class="source" alt="Submitted source"></figure><figure class="outline-figure"><figcaption>Normalized outline</figcaption><img class="outline" alt="Submitted outline"></figure></div><div class="actions"><button class="reject">Reject</button><div class="rating-options" role="radiogroup" aria-label="Rating"><button data-rating="unusable" role="radio">Unusable</button><button data-rating="bad_perspective" role="radio">Bad perspective</button><button data-rating="good" role="radio">Good</button></div><button class="approve">Accept</button></div>`;
-        article.querySelector('h2').textContent = names;
+        const title = document.createElement('h2');
+        title.textContent = item.products.map(product => `${product.vendor} · ${product.name}`).join(' / ');
+        const meta = document.createElement('div'); meta.className = 'meta';
+        const variants = item.variants || [];
         const source = item.kind === 'independent_update' ? 'metadata-only update' : `${item.source} source`;
-        let selectedRating = item.rating;
-        const setRating = rating => {
-          selectedRating = rating;
-          article.querySelector('.meta').textContent = `${rating.replace('_',' ')} · ${source} · submitted by ${item.contributor}`;
-          for (const button of article.querySelectorAll('[data-rating]')) {
-            const active = button.dataset.rating === rating;
-            button.classList.toggle('active', active);
-            button.setAttribute('aria-checked', String(active));
-          }
-        };
-        for (const button of article.querySelectorAll('[data-rating]')) {
-          const rating = button.dataset.rating;
-          button.disabled = (rating === 'unusable' && item.kind !== 'catalog') ||
-            (rating !== 'unusable' && !item.outline_url);
-          button.addEventListener('click', () => setRating(rating));
+        meta.textContent = `${variants.length ? '' : `${source} · `}submitted by ${item.contributor}`;
+        article.append(title, meta);
+        const ratings = {};
+        // The root source is a fallback preview only when its outline exists.
+        if (!variants.length || item.outline_url) {
+          article.append(outlineSection(item, {
+            id:'', label:variants.length ? 'Fallback outline' : '', quality:item.rating,
+            source_url:item.source_url, outline_url:item.outline_url,
+          }, ratings));
         }
-        setRating(selectedRating);
-        if (item.variants?.length) {
-          article.querySelector('.rating-options').hidden = true;
-          article.querySelector('.approve').textContent = 'Accept product';
-          selectedRating = null;
+        for (const variant of variants) article.append(outlineSection(item, variant, ratings));
+        const actions = document.createElement('div'); actions.className = 'actions';
+        for (const [decision, label] of [['reject','Reject'], ['approve',variants.length ? 'Accept product' : 'Accept']]) {
+          const button = document.createElement('button'); button.className = decision; button.textContent = label;
+          button.addEventListener('click', () => decide(item, decision, ratings));
+          actions.append(button);
         }
-        if (item.source_url) article.querySelector('.source').src = item.source_url;
-        else {
-          article.querySelector('.source').closest('figure').remove();
-          article.querySelector('.images').classList.add('single');
-        }
-        if (item.outline_url) article.querySelector('.outline').src = item.outline_url;
-        else article.querySelector('.outline-figure').remove();
-        for (const variant of item.variants || []) {
-          const heading = document.createElement('h3');
-          heading.textContent = `${variant.label} · ${variant.quality.replace('_', ' ')}`;
-          const previews = document.createElement('div'); previews.className = 'images';
-          for (const [caption, url] of [['Source', variant.source_url], ['Normalized outline', variant.outline_url]]) {
-            if (!url) continue;
-            const figure = document.createElement('figure');
-            const title = document.createElement('figcaption'); title.textContent = caption;
-            const image = document.createElement('img'); image.src = url; image.alt = `${variant.label} ${caption}`;
-            figure.append(title, image); previews.append(figure);
-          }
-          article.insertBefore(heading, article.querySelector('.actions'));
-          article.insertBefore(previews, article.querySelector('.actions'));
-        }
-        article.querySelector('.approve').addEventListener('click', () =>
-          decide(item.item_id, 'approve', selectedRating));
-        article.querySelector('.reject').addEventListener('click', () => decide(item.item_id, 'reject'));
-        target.appendChild(article);
+        article.append(actions); target.append(article);
       }
     }
 
