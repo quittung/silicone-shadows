@@ -88,6 +88,7 @@ class HostedAppTest(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        self.app.state.comparison.close()
         self.temp.cleanup()
 
     def login(self, name: str, reviewer: bool = False) -> TestClient:
@@ -118,6 +119,59 @@ class HostedAppTest(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200, response.text)
         return response.headers["x-archive-token"]
+
+    def test_comparison_batches_publications_and_refreshes_catalog_changes(self) -> None:
+        client = TestClient(self.app)
+        workspace = self.app.state.workspace
+        outline = self.root / "outline.svg"
+        outline.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg">'
+            '<line id="main-length" x1="0" y1="1" x2="0" y2="0"/>'
+            '</svg>'
+        )
+        with patch.object(
+            workspace, "catalog_records", wraps=workspace.catalog_records
+        ) as records:
+            workspace.publish("sample", ReviewState(rating="good"), outline)
+            workspace.publish(
+                "sample", ReviewState(rating="bad_perspective"), outline
+            )
+            self.assertEqual(records.call_count, 0)
+            self.assertEqual(client.get("/api/comparison/products").json()["products"], [])
+            snapshot = self.app.state.comparison
+            snapshot.delay = 0.01
+            snapshot.schedule()
+            snapshot.start()
+            with snapshot.condition:
+                self.assertTrue(snapshot.condition.wait_for(lambda: snapshot.deadline is None, timeout=2))
+            response = client.get("/api/comparison/products")
+            self.assertEqual(response.json()["products"][0]["rating"], "bad_perspective")
+            self.assertEqual(
+                client.get(
+                    "/api/comparison/products",
+                    headers={"If-None-Match": response.headers["etag"]},
+                ).status_code,
+                304,
+            )
+            self.assertEqual(records.call_count, 1)
+
+            catalog = json.loads(self.catalog.read_text())
+            catalog[0]["n"] = "Renamed Sample"
+            upgraded = self.root / "products_v8.json"
+            upgraded.write_text(json.dumps(catalog))
+            workspace.load_catalog(upgraded)
+            workspace.dataset_changed()
+            with snapshot.condition:
+                self.assertTrue(snapshot.condition.wait_for(lambda: snapshot.deadline is None, timeout=2))
+            self.assertEqual(
+                client.get("/api/comparison/products").json()["products"][0]["n"],
+                "Renamed Sample",
+            )
+            workspace.unpublish("sample")
+            with snapshot.condition:
+                self.assertTrue(snapshot.condition.wait_for(lambda: snapshot.deadline is None, timeout=2))
+            self.assertEqual(client.get("/api/comparison/products").json()["products"], [])
+            self.assertEqual(records.call_count, 3)
 
     def test_unavailable_catalog_image_keeps_claim_for_manual_replacement(self) -> None:
         (self.input_dir / "sample.jpg").unlink()
@@ -192,7 +246,7 @@ class HostedAppTest(unittest.TestCase):
         self.assertEqual(comparison.status_code, 200)
         self.assertEqual(
             comparison.headers["cache-control"],
-            "public, max-age=300, stale-while-revalidate=3600",
+            "public, no-cache",
         )
         self.assertEqual(
             anonymous.get(
@@ -342,10 +396,26 @@ class HostedAppTest(unittest.TestCase):
             if element.get("id") == "main-length"
         )
         self.assertEqual(stored_line.get("display"), "none")
+        snapshot = self.app.state.comparison
+        snapshot.delay = 0.01
+        snapshot.start()
+        previous_comparison = moderator.get("/api/comparison/products")
+        self.assertEqual(previous_comparison.json()["products"], [])
         approved = moderator.post(
             "/api/moderation/submissions/sample/approve?rating=bad_perspective"
         )
         self.assertEqual(approved.status_code, 204, approved.text)
+        with snapshot.condition:
+            self.assertTrue(snapshot.condition.wait_for(lambda: snapshot.deadline is None, timeout=2))
+        comparison = moderator.get(
+            "/api/comparison/products",
+            headers={"If-None-Match": previous_comparison.headers["etag"]},
+        )
+        self.assertEqual(comparison.status_code, 200)
+        product = comparison.json()["products"][0]
+        self.assertEqual(product["n"], "Sample")
+        self.assertEqual(product["rating"], "bad_perspective")
+        self.assertEqual(moderator.get(product["svg_url"]).status_code, 200)
         record = json.loads(
             (self.dataset_dir / "vendor/type/sample/metadata.json").read_text()
         )

@@ -25,6 +25,7 @@ from ..artifacts import (
 )
 from .. import variants as variant_store
 from ..hosted import ClaimError, User
+from ..comparison import ComparisonSnapshot
 from ..models import GuestMetadata, IndependentUpdate, PrefetchSelection, ReviewState
 from ..workspace import (
     ALLOWED_IMAGE_FORMATS,
@@ -417,12 +418,15 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         ).encode()
         return body, f'"{hashlib.sha256(body).hexdigest()}"', outlines
 
-    comparison_body, comparison_etag, comparison_outlines = build_comparison_snapshot()
+    comparison_snapshot = ComparisonSnapshot(build_comparison_snapshot)
+    app.state.comparison = comparison_snapshot
+    workspace.on_dataset_change = comparison_snapshot.schedule
 
     @app.get("/api/comparison/products")
     def comparison_products(request: Request) -> Response:
+        comparison_body, comparison_etag, _ = comparison_snapshot.get()
         headers = {
-            "Cache-Control": "public, max-age=300, stale-while-revalidate=3600",
+            "Cache-Control": "public, no-cache",
             "ETag": comparison_etag,
         }
         if request.headers.get("if-none-match") == comparison_etag:
@@ -435,6 +439,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.get("/api/comparison/outlines/{outline_id}.svg")
     def comparison_outline(outline_id: str, v: str | None = None) -> Response:
+        _, _, comparison_outlines = comparison_snapshot.get()
         outline = comparison_outlines.get(outline_id)
         if not outline or v != outline[1] or not outline[0].is_file():
             raise HTTPException(status_code=404, detail="outline does not exist")
@@ -446,13 +451,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.post("/api/comparison/reload")
     def reload_comparison(request: Request) -> Response:
-        nonlocal comparison_body, comparison_etag, comparison_outlines
         user = request.state.user
         if store and (not user or not user.reviewer):
             raise HTTPException(status_code=403, detail="reviewer access required")
-        comparison_body, comparison_etag, comparison_outlines = (
-            build_comparison_snapshot()
-        )
+        comparison_snapshot.refresh()
         return Response(status_code=204)
 
     @app.post("/api/items/{item_id}/claim")

@@ -45,6 +45,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         worker = workspace.start_prefetch()
+        app.state.comparison.start()
         checker = None
         if updates:
             checker = threading.Thread(
@@ -54,6 +55,7 @@ def create_app(
         try:
             yield
         finally:
+            app.state.comparison.close()
             if updates:
                 updates.stop.set()
                 checker.join(timeout=1)

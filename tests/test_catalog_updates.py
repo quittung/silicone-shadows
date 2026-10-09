@@ -82,6 +82,12 @@ class CatalogUpdatesTest(unittest.TestCase):
         self.assertEqual(json.loads(self.updates.source.read_text())["version"], 7)
         self.assertTrue(paths["metadata"].exists())
 
+    def test_activation_schedules_comparison_refresh(self):
+        self.discover([{**self.product, "n": "Renamed"}])
+        with patch.object(self.workspace, "on_dataset_change") as changed:
+            self.updates.apply()
+        changed.assert_called_once_with()
+
     def test_completed_review_survives_image_change_and_clears_stale_prefetch(self):
         directory = self.workspace.record_paths[1]
         atomic_json(directory / "metadata.json", {"catalog_id": 1, "quality": "unusable"})

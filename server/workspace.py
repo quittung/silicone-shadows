@@ -64,6 +64,7 @@ class Workspace:
         self.pending_dir = pending_dir.resolve() if pending_dir else None
         self.image_base_url = image_base_url
         self.hosted_store = hosted_store
+        self.on_dataset_change = None
         self.static_dir = Path(__file__).resolve().parents[1] / "static"
         self.work_dir.mkdir(parents=True, exist_ok=True)
         if hosted_store:
@@ -488,6 +489,7 @@ class Workspace:
                 shutil.rmtree(directory / "variants", ignore_errors=True)
                 for name in ("metadata.json", "outline.svg"):
                     (directory / name).unlink(missing_ok=True)
+        self.dataset_changed()
 
     def published_record(self, product: dict) -> tuple[dict, Path] | None:
         directory = self.record_paths.get(product["id"])
@@ -666,6 +668,7 @@ class Workspace:
                 atomic_bytes(published_svg, svg_path.read_bytes())
             else:
                 published_svg.unlink(missing_ok=True)
+        self.dataset_changed()
 
     def publish_independent(
         self,
@@ -689,6 +692,7 @@ class Workspace:
             self.independent_document(f"community:{item_id}", metadata),
         )
         atomic_bytes(directory / "outline.svg", svg_path.read_bytes())
+        self.dataset_changed()
         return directory
 
     def update_independent(self, record_id: str, metadata: GuestMetadata) -> Path:
@@ -719,7 +723,12 @@ class Workspace:
             new_directory.parent.mkdir(parents=True, exist_ok=True)
             old_directory.replace(new_directory)
         atomic_json(new_directory / "metadata.json", document)
+        self.dataset_changed()
         return new_directory
+
+    def dataset_changed(self) -> None:
+        if self.on_dataset_change:
+            self.on_dataset_change()
 
     def reset_review(
         self,

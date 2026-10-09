@@ -152,6 +152,7 @@ class CatalogUpdates:
                         for owner, ids in workspace._prefetch_ids.items()
                     }
             workspace._prefetch_wake.set()
+            workspace.dataset_changed()
             return self.status()
 
     def run(self):

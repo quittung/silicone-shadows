@@ -288,7 +288,7 @@ class ReviewAppTest(unittest.TestCase):
                 etag = response.headers["etag"]
                 self.assertEqual(
                     response.headers["cache-control"],
-                    "public, max-age=300, stale-while-revalidate=3600",
+                    "public, no-cache",
                 )
                 self.assertEqual(
                     client.get(
