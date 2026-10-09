@@ -204,7 +204,7 @@ class VariantsTest(unittest.TestCase):
         self.assertEqual(client.post("/api/items/sample/rereview").status_code, 200)
         prepared = client.post("/api/items/sample/prepare?variant=medium-large")
         self.assertEqual(prepared.status_code, 200)
-        self.assertTrue(prepared.json()["preview_only"])
+        self.assertTrue(prepared.json()["outline_mask"])
         client.post("/api/items/sample/prepare")
         self.assertEqual(self.save(done=True, client=client).status_code, 200)
         self.assertEqual(

@@ -289,6 +289,9 @@ class Workspace:
             paths = item_paths(self.work_dir, item_id)
         except ValueError:
             return
+        from . import revisions
+
+        revisions.cancel(self, item_id)
         with self._cache_lock:
             keep_catalog_cache = (
                 item_id in self.catalog_sources
@@ -374,11 +377,20 @@ class Workspace:
             found[path.stem] = path
         return found
 
-    def queue_items(self) -> dict[str, Path]:
-        if not self.image_base_url:
-            return self.sources()
-        items = dict(self.catalog_sources)
+    def queue_items(self, independent_records: dict | None = None) -> dict[str, Path]:
+        items = dict(self.catalog_sources) if self.image_base_url else {}
         items.update(self.sources())
+        records = (
+            independent_records
+            if independent_records is not None
+            else self.independent_records()
+        )
+        for record_id, (_, directory) in records.items():
+            items[record_id] = directory / "outline.svg"
+        if self.hosted_store:
+            for row in self.hosted_store.submissions():
+                if row["kind"] != "catalog":
+                    items[row["item_id"]] = self.pending_paths(row["item_id"])["svg"]
         return items
 
     def download_source(
@@ -461,8 +473,21 @@ class Workspace:
     ) -> tuple[dict[str, Path], int, int]:
         from .variants import paths as outline_paths
 
-        source = self.source_for(item_id, allow_invalid_certificate, variant)
         paths = outline_paths(self, item_id, variant)
+        if (
+            paths["metadata"].is_file()
+            and json.loads(paths["metadata"].read_text()).get("svg_canvas")
+            and not paths["rembg"].is_file()
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="Restore the saved outline mask before using image tools.",
+            )
+        source = (
+            paths["source"]
+            if paths["source"].exists()
+            else self.source_for(item_id, allow_invalid_certificate, variant)
+        )
         paths["directory"].mkdir(parents=True, exist_ok=True)
 
         if not paths["source"].exists() or not paths["rembg"].exists():
@@ -639,6 +664,7 @@ class Workspace:
         source: str | None = None,
         variants: dict | None = None,
         variants_directory: Path | None = None,
+        records: list[dict] | None = None,
     ) -> None:
         from .variants import validate_variants, write_variants
 
@@ -648,7 +674,24 @@ class Workspace:
             directory = self.record_paths.get(product["id"])
             if not directory:
                 continue
-            document = self.record_document(
+            previous = (
+                json.loads((directory / "metadata.json").read_text())
+                if (directory / "metadata.json").is_file()
+                else {}
+            )
+            if records:
+                previous = dict(
+                    next(
+                        (
+                            record
+                            for record in records
+                            if record.get("catalog_id") == product["id"]
+                        ),
+                        previous,
+                    )
+                )
+            previous.pop("variants", None)
+            document = previous | self.record_document(
                 product,
                 state,
                 source
@@ -744,6 +787,10 @@ class Workspace:
             kinds = ("source", "rembg", *kinds)
         for kind in kinds:
             paths[kind].unlink(missing_ok=True)
+        from .svg_revision import OUTLINE_REVISION_FILES
+
+        for name in OUTLINE_REVISION_FILES:
+            (paths["directory"] / name).unlink(missing_ok=True)
         state = ReviewState(alpha_threshold=threshold, re_review=re_review)
         atomic_json(
             paths["metadata"],
@@ -762,7 +809,52 @@ class Workspace:
         user: User | None = None,
         claim_records: dict[str, dict] | None = None,
         submission_records: dict[str, object] | None = None,
+        independent_records: dict | None = None,
     ) -> dict:
+        from . import revisions
+
+        independent = revisions.independent_record(self, item_id, independent_records)
+        if independent:
+            metadata, directory = independent
+            submission = revisions.pending_item(self, item_id)
+            summary = self.independent_item_summary(
+                item_id, metadata, directory, pending=bool(submission)
+            )
+            revision = revisions.document(self, item_id)
+            claim = (claim_records or {}).get(item_id)
+            own = bool(
+                revision
+                and (
+                    not self.hosted_store
+                    or claim
+                    and user
+                    and claim["user_id"] == user.id
+                )
+            )
+            summary.update(
+                published=bool(
+                    (
+                        independent_records
+                        if independent_records is not None
+                        else self.independent_records()
+                    ).get(metadata["record_id"])
+                ),
+                revision=own,
+                edit_item_id=submission["item_id"] if submission else item_id,
+                can_edit=not submission or bool(user and user.reviewer),
+                read_only=not own,
+                status="pending" if own else "done",
+                claimed_by=claim["name"]
+                if claim and (not user or claim["user_id"] != user.id)
+                else None,
+            )
+            if revision and own:
+                summary["metadata"] = revision["records"][0]
+            if submission:
+                summary["svg_url"] = (
+                    f"/api/submissions/{quote(submission['item_id'], safe='')}/outline.svg?show_length=true"
+                )
+            return summary
         paths = self.paths(item_id)
         state = read_state(paths["metadata"])
         products = self.catalog_by_stem.get(item_id, [])
@@ -780,7 +872,7 @@ class Workspace:
         )
         workflow_status = "never_worked"
         read_only = False
-        if self.hosted_store and submission:
+        if self.hosted_store and submission and not own_active_review:
             state = ReviewState.model_validate_json(submission["state_json"])
             status = "done"
             workflow_status = "pending_review"
@@ -789,6 +881,13 @@ class Workspace:
             provenance = submission["source"]
             svg_product = None
         elif state.re_review and (not self.hosted_store or own_active_review):
+            workflow_status = (
+                "pending_review"
+                if submission
+                else "in_catalog"
+                if published
+                else "never_worked"
+            )
             status = "pending"
             rating = state.rating
             provenance = None
@@ -819,6 +918,7 @@ class Workspace:
             rating = state.rating
             provenance = None
             svg_product = None
+            read_only = state.status == "done" and not state.re_review
         if self.hosted_store and submission and state.rating != "unusable":
             svg_url = f"/api/submissions/{quote(item_id, safe='')}/outline.svg"
         else:
@@ -834,12 +934,20 @@ class Workspace:
             "status": status,
             "workflow_status": workflow_status,
             "rating": rating,
-            "published": bool(published)
-            and (not own_active_review if self.hosted_store else not state.re_review),
+            "published": bool(published),
+            "revision": state.re_review and not read_only,
+            "can_edit": bool(published)
+            or bool(submission and user and user.reviewer)
+            or (not self.hosted_store and state.status == "done"),
             "read_only": read_only,
             "pending_review": bool(submission),
             "provenance": provenance,
-            "svg_url": svg_url,
+            "svg_url": svg_url
+            or (
+                f"/api/items/{quote(item_id, safe='')}/file/svg"
+                if not self.hosted_store and paths["svg"].is_file()
+                else None
+            ),
             "has_alternative": (
                 self.pending_paths(item_id)["alternative"].exists()
                 if self.hosted_store and submission
@@ -992,7 +1100,11 @@ class Workspace:
             else {}
         )
         window = []
+        from . import revisions
+
         for owner_id, item_id in ordered:
+            if revisions.document(self, item_id):
+                continue
             if item_id in window or item_id == current_id:
                 continue
             user = User(owner_id, "", False) if self.hosted_store else None

@@ -130,7 +130,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .step-help { margin-bottom: .6rem; }
 #status { min-height: 2.5em; margin: .55rem 0; }
 #status.error { color: var(--danger); }
-#download-current, #save-next { width: 100%; padding: .7rem; font-weight: 650; }
+#download-current, #save-next, #cancel-revision { width: 100%; padding: .7rem; }
+#download-current, #save-next { font-weight: 650; }
 #download-current, #save-next { border-color: #168da0; background: #164b56; }
 .export-actions { margin-top: .7rem; }
 kbd {
@@ -139,6 +140,13 @@ kbd {
   box-shadow: inset 0 -1px #0d1013;
 }
 button kbd { float: right; margin-left: .4rem; }
+#save-next { position: relative; padding-inline: 2rem; }
+#save-next kbd {
+  position: absolute; right: .7rem; top: 50%; transform: translateY(-50%);
+  float: none; margin: 0; display: flex; align-items: center; justify-content: center;
+  width: 1.5em; height: 1.5em; padding: 0; box-sizing: border-box;
+}
+#save-next kbd svg { display: block; width: .75rem; height: .5rem; }
 #help { width: 2.2rem; padding-inline: 0; font-weight: 700; }
 dialog {
   width: min(42rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem);

@@ -9,6 +9,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..artifacts import length_preview
+from .. import revisions
 from ..models import IndependentSubmission, IndependentUpdate, ReviewState
 from ..workspace import Workspace
 
@@ -33,7 +34,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         pending = workspace.pending_paths(item_id)
         if variant:
             metadata = json.loads(pending["metadata"].read_text())
-            entries = metadata.get("records", [{}])[0].get("variants", {})
+            entries = (metadata.get("record") or metadata.get("records", [{}])[0]).get(
+                "variants", {}
+            )
             if variant not in entries:
                 raise HTTPException(status_code=404, detail="unknown variant")
             path = pending["directory"] / "variants" / variant / "outline.svg"
@@ -84,12 +87,16 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 ]
             )
             variant_previews = []
-            if row["kind"] == "catalog":
+            if row["kind"] == "catalog" or json.loads(
+                workspace.pending_paths(row["item_id"])["metadata"].read_text()
+            ).get("outline_revision"):
                 raw = json.loads(
                     workspace.pending_paths(row["item_id"])["metadata"].read_text()
                 )
                 for key, entry in (
-                    raw.get("records", [{}])[0].get("variants", {}).items()
+                    (raw.get("record") or raw.get("records", [{}])[0])
+                    .get("variants", {})
+                    .items()
                 ):
                     variant_previews.append(
                         {
@@ -118,18 +125,28 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "contributor": row["user_name"],
                     "created_at": row["created_at"],
                     "kind": row["kind"],
+                    "outline_revision": bool(
+                        json.loads(
+                            workspace.pending_paths(row["item_id"])[
+                                "metadata"
+                            ].read_text()
+                        ).get("outline_revision")
+                    ),
                     "rating": rating,
                     "source": row["source"],
                     "products": products,
                     "variants": variant_previews,
                     "outline_url": (
                         f"/api/submissions/{quote(row['item_id'], safe='')}/outline.svg?show_length=true"
-                        if independent or rating != "unusable"
+                        if workspace.pending_paths(row["item_id"])["svg"].is_file()
                         else None
                     ),
                     "source_url": (
                         None
                         if row["kind"] == "independent_update"
+                        and not workspace.pending_paths(row["item_id"])[
+                            "alternative"
+                        ].is_file()
                         or (variant_previews and rating == "unusable")
                         else f"/api/moderation/submissions/{quote(row['item_id'], safe='')}/source"
                     ),
@@ -148,7 +165,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         pending = workspace.pending_paths(item_id)
         if variant:
             raw = json.loads(pending["metadata"].read_text())
-            if variant not in raw.get("records", [{}])[0].get("variants", {}):
+            if variant not in (raw.get("record") or raw.get("records", [{}])[0]).get(
+                "variants", {}
+            ):
                 raise HTTPException(status_code=404, detail="unknown variant")
             alternative = (
                 pending["directory"] / "variants" / variant / "alternative.png"
@@ -171,8 +190,18 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         submission = store.submission(item_id)
         if not submission:
             raise HTTPException(status_code=404, detail="pending submission not found")
+        if item_id in store.claims() and revisions.document(workspace, item_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This submission is being edited. Save or cancel the revision first.",
+            )
         pending = workspace.pending_paths(item_id)
-        if ratings and submission["kind"] != "catalog":
+        revision_raw = json.loads(pending["metadata"].read_text())
+        if (
+            ratings
+            and submission["kind"] != "catalog"
+            and not revision_raw.get("outline_revision")
+        ):
             raise HTTPException(
                 status_code=400, detail="outline ratings require a catalog submission"
             )
@@ -181,7 +210,35 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 status_code=400,
                 detail="independent products cannot be rated unusable",
             )
-        if submission["kind"] == "independent":
+        if revision_raw.get("outline_revision") and submission["kind"] != "catalog":
+            record = revision_raw["record"]
+            entries = record.get("variants", {})
+            overrides = dict(ratings or {})
+            if rating:
+                overrides.setdefault("", rating)
+            if set(overrides) - ({""} | set(entries)):
+                raise HTTPException(
+                    status_code=400, detail="unknown outline in rating overrides"
+                )
+            for key, quality in overrides.items():
+                path = (
+                    pending["directory"] / "variants" / key / "outline.svg"
+                    if key
+                    else pending["svg"]
+                )
+                if quality != "unusable" and not path.is_file():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="cannot rate a missing outline as usable",
+                    )
+                if key:
+                    entries[key]["quality"] = quality
+                else:
+                    record["quality"] = quality
+            revisions.publish_independent_revision(
+                workspace, record, pending["directory"]
+            )
+        elif submission["kind"] == "independent":
             if not pending["svg"].is_file():
                 raise HTTPException(
                     status_code=500, detail="pending outline is missing"
@@ -201,7 +258,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         else:
             state = ReviewState.model_validate_json(submission["state_json"])
             raw = json.loads(pending["metadata"].read_text())
-            entries = raw.get("records", [{}])[0].get("variants", {})
+            entries = (raw.get("record") or raw.get("records", [{}])[0]).get(
+                "variants", {}
+            )
             overrides = dict(ratings or {})
             if rating:
                 overrides.setdefault("", rating)
@@ -236,6 +295,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 submission["source"],
                 variants=entries,
                 variants_directory=pending["directory"],
+                records=raw.get("records"),
             )
         store.remove_submission(item_id)
         if pending["directory"].is_dir():
@@ -247,6 +307,11 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         require_reviewer(request)
         if not store.submission(item_id):
             raise HTTPException(status_code=404, detail="pending submission not found")
+        if item_id in store.claims() and revisions.document(workspace, item_id):
+            raise HTTPException(
+                status_code=409,
+                detail="This submission is being edited. Save or cancel the revision first.",
+            )
         store.remove_submission(item_id)
         directory = workspace.pending_paths(item_id)["directory"]
         if directory.is_dir():

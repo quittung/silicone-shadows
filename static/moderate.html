@@ -24,7 +24,11 @@
     button.reject { color:var(--bg); border-color:var(--bad); background:var(--bad); }
     button:disabled { cursor:not-allowed; opacity:.45; }
     .submitted-outline { margin:.9rem 0; }
-    .submitted-outline h3 { margin:0 0 .5rem; font-size:1rem; }
+    .submitted-outline + .submitted-outline { margin-top:1.8rem; }
+    .outline-heading { display:flex; align-items:baseline; justify-content:space-between; gap:1rem; margin-bottom:.5rem; }
+    .submitted-outline h3 { margin:0; font-size:1rem; }
+    .outline-edit { color:var(--muted); font-size:.9rem; text-decoration:none; white-space:nowrap; }
+    .outline-edit:hover, .outline-edit:focus-visible { color:var(--accent); text-decoration:underline; }
     .rating-options { margin-top:.6rem; display:grid; grid-template-columns:repeat(3,1fr); flex:1 1 18rem; overflow:hidden; border:1px solid var(--border); border-radius:6px; }
     .rating-options button { border:0; border-radius:0; white-space:nowrap; }
     .rating-options button + button { border-left:1px solid var(--border); }
@@ -61,7 +65,7 @@
 
     async function decide(item, decision, ratings) {
       try {
-        const catalog = item.kind === 'catalog';
+        const catalog = item.kind === 'catalog' || item.outline_revision;
         const query = decision === 'approve' && !catalog ? `?rating=${encodeURIComponent(ratings[''])}` : '';
         const options = {method:'POST'};
         if (decision === 'approve' && catalog) {
@@ -76,10 +80,12 @@
     function outlineSection(item, outline, ratings) {
       const section = document.createElement('section');
       section.className = 'submitted-outline';
-      if (outline.label) {
-        const heading = document.createElement('h3'); heading.textContent = outline.label;
-        section.append(heading);
-      }
+      const headingRow = document.createElement('div'); headingRow.className = 'outline-heading';
+      const heading = document.createElement('h3'); heading.textContent = outline.label || 'Outline';
+      const edit = document.createElement('a'); edit.className = 'outline-edit'; edit.textContent = 'Edit';
+      edit.setAttribute('aria-label', `Edit ${outline.label || 'outline'}`);
+      edit.href = `/editor?item=${encodeURIComponent(item.item_id)}&variant=${encodeURIComponent(outline.id)}&edit=1`;
+      headingRow.append(heading, edit); section.append(headingRow);
       const previews = document.createElement('div'); previews.className = 'images';
       for (const [caption, url] of [['Source', outline.source_url], ['Normalized outline', outline.outline_url]]) {
         if (!url) continue;

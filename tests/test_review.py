@@ -742,7 +742,7 @@ class ReviewAppTest(unittest.TestCase):
                     restarted = fresh_client.post("/api/items/sample/rereview")
                     self.assertEqual(restarted.status_code, 200, restarted.text)
                     self.assertEqual(restarted.json()["status"], "pending")
-                    self.assertFalse(restarted.json()["published"])
+                    self.assertTrue(restarted.json()["published"])
                     for directory in published:
                         self.assertTrue((directory / "metadata.json").exists())
                     self.assertEqual(

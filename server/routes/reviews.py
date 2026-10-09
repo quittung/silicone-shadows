@@ -23,6 +23,7 @@ from ..artifacts import (
     svg_main_length,
     validate_length,
 )
+from .. import revisions
 from .. import variants as variant_store
 from ..hosted import ClaimError, User
 from ..comparison import ComparisonSnapshot
@@ -61,6 +62,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         submissions = (
             {row["item_id"]: row for row in store.submissions()} if store else {}
         )
+        independent_records = workspace.independent_records()
         items = [
             workspace.item_summary(
                 item_id,
@@ -68,27 +70,10 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 request.state.user,
                 claims,
                 submissions,
+                independent_records,
             )
-            for item_id, source in workspace.queue_items().items()
+            for item_id, source in workspace.queue_items(independent_records).items()
         ]
-        pending_independent = {}
-        if store:
-            for row in submissions.values():
-                if row["kind"] == "independent_update":
-                    update = IndependentUpdate.model_validate_json(row["state_json"])
-                    pending_independent[update.record_id] = row
-        items.extend(
-            workspace.independent_item_summary(
-                record_id,
-                metadata,
-                directory,
-                pending=record_id in pending_independent,
-            )
-            for record_id, (
-                metadata,
-                directory,
-            ) in workspace.independent_records().items()
-        )
         if store:
             for item in items:
                 item["last_opened_at"] = activity.get(item["id"])
@@ -486,10 +471,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         variant: str = "",
     ) -> dict:
         claim_expires_at = None
-        if store and store.submission(item_id):
+        if (
+            store
+            and store.submission(item_id)
+            and not revisions.document(workspace, item_id)
+        ):
             raise HTTPException(status_code=409, detail="item is pending review")
         if (
-            workspace.published_item(item_id)
+            revisions.saved_records(workspace, item_id)
             and not read_state(workspace.paths(item_id)["metadata"]).re_review
         ):
             raise HTTPException(
@@ -513,18 +502,16 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     ),
                     "claim_expires_at": claim_expires_at,
                 }
-            if (
-                raw.get("preserved")
-                and selected_paths["svg"].is_file()
-                and not selected_paths["source"].is_file()
-            ):
+            if raw.get("svg_canvas") and not selected_paths["rembg"].is_file():
                 return {
                     "id": item_id,
                     "state": read_state(selected_paths["metadata"]).model_dump(
                         mode="json"
                     ),
-                    "preview_only": True,
-                    "preview_url": f"/api/items/{quote(item_id, safe='')}/file/svg?variant={quote(variant)}",
+                    "outline_mask": True,
+                    **raw["svg_canvas"],
+                    "mask_url": f"/api/items/{quote(item_id, safe='')}/file/revision-mask?variant={quote(variant)}",
+                    "claim_expires_at": claim_expires_at,
                 }
         try:
             paths, width, height = workspace.prepare(
@@ -542,6 +529,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             "id": item_id,
             "width": width,
             "height": height,
+            "reference_url": f"/api/items/{encoded_id}/file/revision-photo?variant={quote(variant)}"
+            if (paths["directory"] / "revision-photo.png").is_file()
+            else None,
+            "saved_outline": bool(
+                json.loads(paths["metadata"].read_text()).get("svg_canvas")
+            )
+            if paths["metadata"].exists()
+            else False,
             "has_alternative": paths["alternative"].exists(),
             "state": read_state(paths["metadata"]).model_dump(mode="json"),
             "claim_expires_at": claim_expires_at,
@@ -583,31 +578,107 @@ def register(app: FastAPI, workspace: Workspace) -> None:
 
     @app.post("/api/items/{item_id}/rereview")
     def rereview_item(item_id: str, request: Request) -> dict:
-        if store and store.submission(item_id):
-            raise HTTPException(status_code=409, detail="item is pending review")
-        if not workspace.published_item(item_id):
-            raise HTTPException(status_code=400, detail="item is not published")
+        workspace.require_item(item_id)
+        pending = revisions.pending_item(workspace, item_id)
+        if pending and not request.state.user.reviewer:
+            raise HTTPException(status_code=403, detail="reviewer access required")
+        if not pending and not revisions.saved_records(workspace, item_id):
+            raise HTTPException(status_code=400, detail="item has no saved result")
         if store:
             acquire_claim(item_id, request.state.user)
             workspace.select_prefetch(request.state.user.id, [item_id])
-            workspace.discard_work(item_id)
         else:
             workspace.set_active(item_id)
-        variant_store.initialize(workspace, item_id)
-        source = workspace.source_for(item_id)
-        paths = workspace.paths(item_id)
         with workspace.session_lock:
-            workspace.reset_review(
-                paths,
-                item_id,
-                source.name,
-                re_review=True,
-                keep_prepared=True,
-            )
-        claims = store.claims() if store else {}
+            revisions.start(workspace, item_id, request.state.user)
         return workspace.item_summary(
-            item_id, workspace.queue_items()[item_id], request.state.user, claims
+            item_id,
+            workspace.queue_items()[item_id],
+            request.state.user,
+            store.claims() if store else {},
         )
+
+    @app.post("/api/items/{item_id}/revision-metadata")
+    def revision_metadata(
+        item_id: str, metadata: GuestMetadata, request: Request
+    ) -> dict:
+        if store:
+            require_claim(item_id, request.state.user)
+        revision = revisions.require_current(workspace, item_id)
+        if (
+            not revision
+            or not revision["independent"]
+            or metadata.catalog_id is not None
+        ):
+            raise HTTPException(status_code=400, detail="independent revision required")
+        try:
+            workspace.validate_metadata_options(metadata)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        known = {size.label for size in metadata.sizes}
+        entries = variant_store.collection(workspace, item_id)["variants"]
+        try:
+            variant_store.validate_variants(entries, known)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        revision["records"][0].update(
+            workspace.independent_document(revision["record_id"], metadata)
+        )
+        if variant_store.collection(workspace, item_id)["general"]:
+            root_path = workspace.paths(item_id)["metadata"]
+            root_raw = json.loads(root_path.read_text())
+            atomic_json(root_path, root_raw | {"rating": metadata.quality})
+        atomic_json(workspace.paths(item_id)["directory"] / "revision.json", revision)
+        return {"metadata": revision["records"][0]}
+
+    @app.post("/api/items/{item_id}/cancel-revision")
+    def cancel_revision(item_id: str, request: Request) -> Response:
+        workspace.require_item(item_id)
+        if store:
+            require_claim(item_id, request.state.user)
+        with workspace.session_lock:
+            revisions.cancel(workspace, item_id)
+        if store:
+            workspace.select_prefetch(request.state.user.id, [])
+            store.release_claims(request.state.user, item_id)
+        return Response(status_code=204)
+
+    @app.post("/api/items/{item_id}/revision-mask")
+    async def restore_revision_mask(
+        item_id: str, request: Request, mask: UploadFile = File(), variant: str = ""
+    ) -> Response:
+        if store:
+            require_claim(item_id, request.state.user)
+        paths = variant_store.paths(workspace, item_id, variant)
+        raw = json.loads(paths["metadata"].read_text())
+        dimensions = raw.get("svg_canvas")
+        if not dimensions or paths["rembg"].exists():
+            raise HTTPException(
+                status_code=409, detail="outline mask is already initialized"
+            )
+        try:
+            data = await mask.read(MAX_IMAGE_BYTES + 1)
+        finally:
+            await mask.close()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="mask is too large")
+        try:
+            with Image.open(BytesIO(data)) as image:
+                if image.format != "PNG" or image.size != (
+                    dimensions["width"],
+                    dimensions["height"],
+                ):
+                    raise ValueError("mask dimensions do not match the saved outline")
+                rgba = image.convert("RGBA")
+                rgba.load()
+        except (OSError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        source = Image.new("RGB", rgba.size, "#ecece8")
+        source.paste(Image.new("RGB", rgba.size, "#343b45"), mask=rgba.getchannel("A"))
+        atomic_image(paths["source"], source)
+        atomic_image(paths["rembg"], rgba)
+        atomic_image(paths["directory"] / "revision-rembg.png", rgba)
+        return Response(status_code=204)
 
     @app.get("/api/products/{catalog_id}/outline.svg")
     def published_outline(
@@ -745,9 +816,24 @@ def register(app: FastAPI, workspace: Workspace) -> None:
     ) -> FileResponse:
         if store:
             require_claim(item_id, request.state.user)
-        if kind not in {"source", "rembg", "edits", "mask", "cutout", "svg"}:
+        if kind not in {
+            "source",
+            "rembg",
+            "edits",
+            "mask",
+            "cutout",
+            "svg",
+            "revision-mask",
+            "revision-photo",
+        }:
             raise HTTPException(status_code=404, detail="unknown artifact")
-        path = variant_store.paths(workspace, item_id, variant)[kind]
+        paths = variant_store.paths(workspace, item_id, variant)
+        path = (
+            paths["directory"]
+            / ("revision-mask.svg" if kind == "revision-mask" else "revision-photo.png")
+            if kind.startswith("revision-")
+            else paths[kind]
+        )
         if not path.is_file():
             raise HTTPException(status_code=404, detail="artifact does not exist")
         return FileResponse(path, headers={"Cache-Control": "no-store"})
@@ -765,6 +851,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             require_claim(item_id, request.state.user)
         else:
             workspace.set_active(item_id)
+        revision = revisions.require_current(workspace, item_id)
         paths = variant_store.paths(workspace, item_id, variant)
         raw = (
             json.loads(paths["metadata"].read_text())
@@ -772,7 +859,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             else {}
         )
         preserved = (
-            raw.get("preserved")
+            (raw.get("preserved") or raw.get("svg_canvas"))
             and paths["svg"].is_file()
             and not paths["source"].is_file()
         )
@@ -782,7 +869,15 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             paths, width, height = workspace.prepare(item_id, variant=variant)
         try:
             state = ReviewState.model_validate_json(state_json)
-            if not preserved:
+            if revision:
+                state.re_review = True
+            if preserved and raw.get("svg_canvas"):
+                validate_length(
+                    state.main_length,
+                    raw["svg_canvas"]["width"],
+                    raw["svg_canvas"]["height"],
+                )
+            elif not preserved:
                 validate_length(state.main_length, width, height)
         except (ValueError, json.JSONDecodeError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -850,7 +945,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 except ValueError as error:
                     raise HTTPException(status_code=400, detail=str(error)) from error
                 state = general_state
-                if not download_only:
+                if not download_only and not revision:
                     state.re_review = False
                 root_paths = workspace.paths(item_id)
                 root_raw = (
@@ -890,6 +985,17 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         )
                         for product in products
                     ]
+                    if revision and revision["independent"]:
+                        metadata = revisions.independent_metadata(
+                            workspace, item_id
+                        ).model_dump(mode="json")
+                        metadata["sizes"] = [
+                            size.in_inches()
+                            for size in revisions.independent_metadata(
+                                workspace, item_id
+                            ).sizes
+                        ]
+                        documents = [("metadata.json", metadata)]
                     for name, metadata in documents:
                         if entries:
                             metadata.update(schema_version=2, variants=entries)
@@ -921,14 +1027,24 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     metadata_path.unlink(missing_ok=True)
                 else:
                     atomic_bytes(metadata_path, previous)
+        if revision and revision["independent"] and state.status == "done":
+            revisions.save_independent(
+                workspace, item_id, state, entries or {}, request.state.user
+            )
+            if not store:
+                reload_comparison(request)
+            return workspace.item_summary(
+                item_id,
+                workspace.queue_items().get(item_id, Path(item_id)),
+                request.state.user,
+                store.claims() if store else {},
+            )
         if store and state.status == "done":
-            if store.submission(item_id):
+            if store.submission(item_id) and not (revision and revision["pending"]):
                 raise HTTPException(
                     status_code=409, detail="item is already pending review"
                 )
-            pending = workspace.pending_paths(item_id)
-            if pending["directory"].exists():
-                shutil.rmtree(pending["directory"])
+            pending = revisions.stage_submission(workspace, item_id)
             atomic_json(
                 pending["metadata"],
                 {
@@ -938,7 +1054,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "state": state.model_dump(mode="json"),
                     "records": [
                         (
-                            workspace.record_document(product, state, source_kind)
+                            revisions.catalog_document(
+                                workspace, revision, product, state, source_kind
+                            )
                             | (
                                 {"schema_version": 2, "variants": entries}
                                 if entries
@@ -960,24 +1078,33 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                             "svg"
                         ].read_bytes(),
                     )
-                    alternative = variant_store.paths(workspace, item_id, key)[
-                        "alternative"
-                    ]
+                    variant_paths = variant_store.paths(workspace, item_id, key)
+                    alternative = variant_paths["alternative"]
+                    if not alternative.exists():
+                        alternative = variant_paths["directory"] / "revision-photo.png"
                     if alternative.exists():
                         atomic_bytes(
                             target / "alternative.png", alternative.read_bytes()
                         )
-            if paths["alternative"].exists():
-                atomic_bytes(pending["alternative"], paths["alternative"].read_bytes())
+            alternative = (
+                paths["alternative"]
+                if paths["alternative"].exists()
+                else paths["directory"] / "revision-photo.png"
+            )
+            if alternative.exists():
+                atomic_bytes(pending["alternative"], alternative.read_bytes())
             try:
-                store.put_submission(
+                revisions.commit_submission(
+                    workspace,
                     item_id,
+                    pending["directory"],
                     request.state.user,
                     source_kind,
                     state.model_dump_json(),
+                    replace=bool(revision and revision["pending"]),
                 )
             except Exception:
-                shutil.rmtree(pending["directory"])
+                shutil.rmtree(pending["directory"], ignore_errors=True)
                 raise
             workspace.select_prefetch(request.state.user.id, [])
             workspace.discard_work(item_id)
@@ -989,6 +1116,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 variants=entries,
                 variants_directory=paths["directory"],
             )
+            revisions.finish(workspace, item_id)
             reload_comparison(request)
         elif not store and not state.re_review and not variant:
             workspace.unpublish(item_id)

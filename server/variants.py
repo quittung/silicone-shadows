@@ -171,11 +171,29 @@ def write_variants(directory: Path, entries: dict, source_directory: Path) -> No
             )
 
 
+def copy_outline(origin: dict, destination: dict) -> None:
+    """Move/copy an outline's image layers and SVG revision baseline together."""
+    destination["directory"].mkdir(parents=True, exist_ok=True)
+    for name, source in origin.items():
+        if name != "directory" and source.is_file():
+            shutil.copyfile(source, destination[name])
+    from .svg_revision import OUTLINE_REVISION_FILES
+
+    for name in OUTLINE_REVISION_FILES:
+        target = destination["directory"] / name
+        target.unlink(missing_ok=True)
+        source = origin["directory"] / name
+        if source.is_file():
+            shutil.copyfile(source, target)
+
+
 def register(app, workspace) -> None:
     from fastapi import Request
     from urllib.parse import quote
 
     def guard(item_id, request):
+        from . import revisions
+
         workspace.require_item(item_id)
         if workspace.hosted_store:
             from .hosted import ClaimError
@@ -187,35 +205,63 @@ def register(app, workspace) -> None:
             except ClaimError as error:
                 raise HTTPException(status_code=409, detail=str(error)) from error
         if (
-            workspace.published_item(item_id)
+            revisions.saved_records(workspace, item_id)
             and not read_state(workspace.paths(item_id)["metadata"]).re_review
         ):
             raise HTTPException(
                 status_code=409, detail="select Re-review before changing variants"
             )
-        if workspace.hosted_store and workspace.hosted_store.submission(item_id):
+        if (
+            workspace.hosted_store
+            and workspace.hosted_store.submission(item_id)
+            and not revisions.document(workspace, item_id)
+        ):
             raise HTTPException(status_code=409, detail="product is pending review")
 
     @app.get("/api/items/{item_id}/variants")
     def get_variants(item_id: str, request: Request) -> dict:
         workspace.require_item(item_id)
+        from . import revisions
+
         products = workspace.catalog_by_stem.get(item_id, [])
+        independent = revisions.independent_record(workspace, item_id)
+        revision = revisions.document(workspace, item_id)
+        root_state = read_state(workspace.paths(item_id)["metadata"])
+        editing = root_state.re_review and (
+            not workspace.hosted_store
+            or workspace.hosted_store.claims().get(item_id, {}).get("user_id")
+            == request.state.user.id
+        )
+        metadata = (
+            revision["records"][0]
+            if revision and revision["independent"] and editing
+            else independent[0]
+            if independent
+            else None
+        )
         size_sets = [
             {size_key(s) for s in p.get("sz", {}).get("s", []) if size_key(s)}
             for p in products
         ]
-        known = set.intersection(*size_sets) if size_sets else set()
-        published = workspace.published_item(item_id)
+        known = (
+            {size_key(size, True) for size in metadata.get("sizes", [])}
+            if metadata
+            else set.intersection(*size_sets)
+            if size_sets
+            else set()
+        )
+        published = revisions.saved_records(workspace, item_id)
         pending = (
             workspace.hosted_store.submission(item_id)
             if workspace.hosted_store
             else None
         )
-        root_state = read_state(workspace.paths(item_id)["metadata"])
         previews = {}
-        if pending:
+        if pending and not editing:
             raw = json.loads(workspace.pending_paths(item_id)["metadata"].read_text())
-            metadata = raw["records"][0]
+            metadata = raw.get("record") or raw.get("records", [{}])[0]
+            if independent and not metadata:
+                metadata = independent[0]
             info = {
                 "general": (workspace.pending_paths(item_id)["svg"]).exists(),
                 "variants": metadata.get("variants", {}),
@@ -224,7 +270,7 @@ def register(app, workspace) -> None:
                 previews[key] = (
                     f"/api/submissions/{quote(item_id, safe='')}/outline.svg?variant={quote(key)}&show_length=true"
                 )
-        elif published and not root_state.re_review:
+        elif published and not editing:
             metadata, directory = published[0]
             info = {
                 "general": (directory / "outline.svg").exists()
@@ -233,8 +279,18 @@ def register(app, workspace) -> None:
             }
             for key, _, _ in published_entries(metadata, directory):
                 previews[key] = (
-                    f"/api/products/{products[0]['id']}/outline.svg?variant={quote(key)}&show_length=true&invert_colors=true"
+                    f"/api/community/{quote(item_id, safe='')}/outline.svg?variant={quote(key)}&show_length=true&invert_colors=true"
+                    if independent
+                    else f"/api/items/{quote(item_id, safe='')}/file/svg?variant={quote(key)}"
+                    if directory == workspace.paths(item_id)["directory"]
+                    else f"/api/products/{products[0]['id']}/outline.svg?variant={quote(key)}&show_length=true&invert_colors=true"
                 )
+            if directory == workspace.paths(item_id)["directory"]:
+                for key in ([""] if info["general"] else []) + list(info["variants"]):
+                    if paths(workspace, item_id, key)["svg"].is_file():
+                        previews[key] = (
+                            f"/api/items/{quote(item_id, safe='')}/file/svg?variant={quote(key)}"
+                        )
         else:
             info = collection(workspace, item_id)
         entries = (
@@ -259,23 +315,30 @@ def register(app, workspace) -> None:
             for key, entry in info["variants"].items()
         )
         ordered_sizes = (
-            list(
+            [size_key(size, True) for size in metadata.get("sizes", [])]
+            if independent
+            else list(
                 dict.fromkeys(
                     size_key(size)
                     for size in products[0].get("sz", {}).get("s", [])
                     if size_key(size) in known
                 )
             )
-            if products
+            if products or independent
             else []
         )
         size_labels = (
             {
+                size_key(size, True): size.get("short_label") or size_key(size, True)
+                for size in metadata.get("sizes", [])
+            }
+            if independent
+            else {
                 size_key(size): size.get("ShortLabel") or size_key(size)
                 for size in products[0].get("sz", {}).get("s", [])
                 if size_key(size) in known
             }
-            if products
+            if products or independent
             else {}
         )
         return {
@@ -308,9 +371,7 @@ def register(app, workspace) -> None:
                         raise ValueError("no general outline to assign")
                     destination = item_paths(root / "variants", key)
                     destination["directory"].mkdir(parents=True, exist_ok=True)
-                    for name, source in workspace.paths(item_id).items():
-                        if name != "directory" and source.is_file():
-                            shutil.copyfile(source, destination[name])
+                    copy_outline(workspace.paths(item_id), destination)
                     info["general"] = False
                 elif change.action == "add":
                     destination = item_paths(root / "variants", key)
@@ -328,9 +389,7 @@ def register(app, workspace) -> None:
                         raise ValueError("unknown variant")
                     origin = paths(workspace, item_id, change.move_from)
                     destination = workspace.paths(item_id)
-                    for name, source in origin.items():
-                        if name != "directory" and source.is_file():
-                            shutil.copyfile(source, destination[name])
+                    copy_outline(origin, destination)
                     del info["variants"][change.move_from]
                     shutil.rmtree(origin["directory"])
                 else:
@@ -387,6 +446,10 @@ def export_outline(target: dict, state: ReviewState) -> None:
         return
     if state.main_length is None:
         raise ValueError("usable outlines require a base-to-tip line")
+    from .svg_revision import export_saved_svg
+
+    if export_saved_svg(target, state):
+        return
     with Image.open(target["source"]) as image:
         validate_length(state.main_length, *image.size)
         cutout = image.convert("RGBA")

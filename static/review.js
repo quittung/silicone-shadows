@@ -38,7 +38,7 @@ let prioritizeLeastRecent = true;
 const view = { zoom: 1, x: 0, y: 0, fit: 1 };
 let activeVariant = '';
 let variantCollection = {outlines: [], sizes: [], general: true};
-let outlinePreview = false;
+let savedOutlineMode = false;
 let variantDialogMode = 'add';
 let variantBusy = false;
 let variantDialogTarget = '';
@@ -72,7 +72,7 @@ function outlineApi(path, itemId = current?.id) {
 
 function renderVariantControls() {
   const controls = $('#variant-controls');
-  controls.hidden = !current || current.independent;
+  controls.hidden = !current;
   $('#variant-add').hidden = !!current?.read_only;
   $('#variant-add').disabled = variantBusy || !variantCollection.sizes.length;
   const list = $('#variant-list');
@@ -279,7 +279,8 @@ function editorUrlView(itemId = current?.id) {
 
 function updateEditorUrl(mode = 'replace', itemId = current?.id) {
   if (mode === 'none') return;
-  const url = buildEditorUrl(location.pathname, editorUrlView(itemId));
+  let url = buildEditorUrl(location.pathname, editorUrlView(itemId));
+  if (activeVariant && itemId) url += `${url.includes('?') ? '&' : '?'}variant=${encodeURIComponent(activeVariant)}`;
   if (url === `${location.pathname}${location.search}`) return;
   history[mode === 'push' ? 'pushState' : 'replaceState'](null, '', url);
 }
@@ -520,7 +521,7 @@ function showEmptyState(title, message) {
 }
 
 function setEditorDisabled(disabled) {
-  $$('.editor button, .editor input, button.editor').forEach(control => control.disabled = disabled);
+  $$('.editor button:not(#cancel-revision), .editor input, button.editor').forEach(control => control.disabled = disabled);
 }
 
 function setSidebarMode(mode) {
@@ -556,12 +557,13 @@ async function showPublishedItem(item) {
   $('#read-only-summary').textContent = `${stage} · ${item.rating?.replace('_', ' ') || 'mixed rating'} · ${source}`;
   $('#view-hint').textContent = 'Wheel zoom · drag pans';
   $('#read-only-info').textContent = item.pending_review
-    ? 'This submission is waiting for moderation and cannot be edited right now.'
-    : item.independent
-      ? 'This independent entry is in the catalog. You can update its metadata without changing the outline.'
-      : 'This entry is in the catalog. Re-review it to replace the published outline.';
+    ? 'This submission is waiting for moderation. Reviewers can edit a working copy.'
+    : 'Edit a working copy. The saved result stays intact until you explicitly save the revision.';
   $('#reset-catalog').hidden = hostedMode || !item.has_alternative;
-  $('#rereview').hidden = item.independent || item.pending_review || !item.published;
+  $('#rereview').hidden = !item.can_edit;
+  $('#cancel-revision').hidden = true;
+  $('#revision-note').hidden = true;
+  $('#revision-metadata').hidden = true;
   $('#edit-metadata').hidden = !item.independent || item.pending_review;
   $$('.rating button').forEach(button =>
     button.classList.toggle('active', button.dataset.rating === item.rating));
@@ -628,10 +630,20 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
   if (hostedMode && current && current.id !== itemId) await releaseCurrentClaim();
   $('#empty-state').classList.remove('visible');
   const listed = items.find(item => item.id === itemId);
-  if (current?.id !== itemId) activeVariant = '';
-  outlinePreview = false;
+  if (current?.id !== itemId) {
+    const linked = new URLSearchParams(location.search);
+    activeVariant = linked.get('item') === itemId ? linked.get('variant') || '' : '';
+  }
+  savedOutlineMode = false;
+  $('#cancel-revision').hidden = !listed?.revision;
+  $('#download-current').hidden = !!listed?.revision;
+  $('#revision-note').hidden = !listed?.revision;
+  $('#save-label').textContent = listed?.revision ? 'Save' : hostedMode ? 'Submit' : 'Save';
+  $('#save-next').setAttribute('aria-label', listed?.revision ? 'Save revision' : hostedMode ? 'Submit' : 'Save');
+  $('#save-next').title = `${$('#save-next').getAttribute('aria-label')} (Space)`;
   $('#variant-blank').hidden = true;
-  if (!listed?.independent) await refreshVariants(itemId);
+  $('#use-saved-photo').hidden = true;
+  await refreshVariants(itemId);
   if (listed?.read_only) {
     await syncPrefetch([], null);
     await showPublishedItem(listed);
@@ -644,6 +656,7 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
   setSidebarMode('edit');
   $('#rereview').hidden = true;
   $('#edit-metadata').hidden = true;
+  $('#revision-metadata').hidden = !listed?.independent || !listed?.revision;
   $('#load-insecure').hidden = true;
   $('#load-insecure').disabled = allowInvalidCertificate;
   $('#load-insecure').textContent = allowInvalidCertificate ? 'Loading image…' : 'Load image anyway';
@@ -653,7 +666,7 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
   setStatus('');
   try {
     const insecure = allowInvalidCertificate ? '&allow_invalid_certificate=true' : '';
-    const details = await api(`${outlineApi('prepare', itemId)}${insecure}`, { method: 'POST' });
+    let details = await api(`${outlineApi('prepare', itemId)}${insecure}`, { method: 'POST' });
     if (details.blank) {
       current = listed; state = sourceImage = rembgImage = null;
       editsDirty = metadataDirty = false;
@@ -694,17 +707,18 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
       updateEditorUrl(urlMode, itemId);
       return;
     }
-    if (details.preview_only) {
-      current = listed; state = details.state; outlinePreview = true;
-      rembgImage = null; sourceImage = await loadPublishedSvg(details.preview_url);
-      editsDirty = metadataDirty = false;
-      setItemTitle(current); setEditorDisabled(true);
-      $('#save-next').disabled = $('#download-current').disabled = false;
-      $('#source-info').textContent = 'Saved outline retained. Paste or drop a photo to edit its shape.';
-      $('#reset-catalog').hidden = true;
-      renderVariantControls(); fitView();
-      setStatus('Saved outline retained'); return;
+    if (details.outline_mask) {
+      const image = await loadImage(details.mask_url);
+      const restored = offscreen();
+      restored.width = details.width; restored.height = details.height;
+      restored.getContext('2d').drawImage(image, 0, 0, details.width, details.height);
+      const form = new FormData();
+      form.append('mask', await canvasBlob(restored), 'mask.png');
+      const response = await fetch(outlineApi('revision-mask', itemId), {method:'POST', body:form});
+      if (!response.ok) throw await responseError(response);
+      details = await api(outlineApi('prepare', itemId), {method:'POST'});
     }
+    savedOutlineMode = !!details.saved_outline;
     const images = [loadImage(details.source_url), loadImage(details.rembg_url)];
     if (details.edits_url) images.push(loadImage(details.edits_url));
     const loaded = await Promise.all(images);
@@ -732,7 +746,13 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
     setItemTitle(current);
     renderVariantControls();
     setTool(tool);
-    $('#source-info').textContent = details.has_alternative
+    $('#use-saved-photo').hidden = !details.reference_url;
+    $('#use-saved-photo').dataset.url = details.reference_url || '';
+    $('#threshold').disabled = savedOutlineMode;
+    $('[data-tool=remask]').disabled = savedOutlineMode;
+    $('#source-info').textContent = savedOutlineMode
+      ? 'Editing saved outline without a reference photo. Paste, drop or upload a photo to use the normal image tools.'
+      : details.has_alternative
       ? 'Alternative image active. Drop or paste another to replace it.'
       : 'Drop or paste an image onto the canvas.';
     $('#reset-catalog').hidden = !details.has_alternative;
@@ -764,7 +784,11 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
 
 async function uploadAlternative(file) {
   if (!current || !file) return;
-  if ((current.read_only || state?.rating || state?.main_length || editsDirty) &&
+  if (current.read_only) {
+    await rereview();
+    if (current?.read_only) return;
+  }
+  if ((state?.rating || state?.main_length || editsDirty) &&
       !confirm('Replace this source image and clear its current mask edits, rating, and length line?')) return;
   clearTimeout(autosaveTimer);
   await saveChain;
@@ -808,14 +832,16 @@ async function resetToCatalog() {
 }
 
 async function rereview() {
-  if (!current?.published) return;
-  if (!confirm('Re-review this item? Its published dataset record will be replaced when you finish.')) return;
-  const itemId = current.id;
-  $('#loading').textContent = 'Starting re-review…';
+  if (!current?.can_edit) return;
+  const itemId = current.edit_item_id || current.id;
+  const selectedVariant = activeVariant;
+  $('#loading').textContent = 'Opening saved result…';
   $('#loading').classList.add('visible');
   try {
     await api(`/api/items/${encodeURIComponent(itemId)}/rereview`, { method: 'POST' });
     await refreshItems();
+    current = items.find(item => item.id === itemId);
+    activeVariant = selectedVariant;
     await loadItem(itemId);
   } catch (error) {
     setStatus(error.message, true);
@@ -824,23 +850,40 @@ async function rereview() {
   }
 }
 
+async function cancelRevision() {
+  if (!current?.revision || !confirm('Discard this working copy and return to the saved result?')) return;
+  clearTimeout(autosaveTimer);
+  await saveChain;
+  const itemId = current.id;
+  const response = await fetch(`/api/items/${encodeURIComponent(itemId)}/cancel-revision`, {method:'POST'});
+  if (!response.ok) throw await responseError(response);
+  await refreshItems();
+  await loadItem(itemId);
+  setStatus('Revision cancelled; saved result retained');
+}
+
 async function editIndependentMetadata() {
-  if (!current?.independent || current.pending_review) return;
+  if (!current?.independent) return;
+  if (!current.revision) {
+    await rereview();
+    if (!current?.revision) return;
+  }
+  await saveVariantDraft();
   const metadata = await MetadataDialog.open(
     current.metadata,
-    'Submit metadata update',
+    'Apply to working copy',
   );
   if (!metadata) return;
   try {
     const itemId = current.id;
-    await api(`/api/community/${encodeURIComponent(itemId)}/metadata`, {
+    await api(`/api/items/${encodeURIComponent(itemId)}/revision-metadata`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(metadata),
     });
     await refreshItems();
     await loadItem(itemId);
-    setStatus('Metadata update submitted for review');
+    setStatus('Metadata updated in working copy; Save revision applies it');
   } catch (error) {
     setStatus(error.message, true);
   }
@@ -992,7 +1035,7 @@ function render() {
   ctx.drawImage(sourceImage, 0, 0);
   ctx.filter = 'none';
 
-  if (current?.read_only || outlinePreview) return;
+  if (current?.read_only) return;
   if (viewMode === 'overlay') {
     ctx.globalAlpha = Number($('#opacity').value) / 100;
     ctx.drawImage(overlayCanvas, 0, 0);
@@ -1128,6 +1171,7 @@ function updateCanvasCursor() {
 }
 
 function setTool(nextTool) {
+  if (savedOutlineMode && nextTool === 'remask') nextTool = 'add';
   tool = nextTool;
   $$('.tool').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   updateCanvasCursor();
@@ -1248,8 +1292,10 @@ async function navigate(direction) {
 }
 
 async function saveAndNext() {
+  const revising = current?.revision;
+  const itemId = current?.id;
   if (!state?.rating) return setStatus('Choose a rating first', true);
-  if (state.rating !== 'unusable' && !state.main_length && !outlinePreview) {
+  if (state.rating !== 'unusable' && !state.main_length) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
   const orderedIds = navigationIds || items.map(item => item.id);
@@ -1258,6 +1304,10 @@ async function saveAndNext() {
     await save('done');
     clearInterval(claimHeartbeat);
     await refreshItems();
+    if (revising) {
+      await loadItem(itemId);
+      return setStatus(hostedMode ? 'Revision saved for moderation' : 'Revision saved');
+    }
   } catch (_) { return; }
   const candidates = visibleItems();
   if (!candidates.length) {
@@ -1277,7 +1327,7 @@ async function saveAndNext() {
 async function downloadCurrent() {
   if (!current || !state) return;
   if (!state.rating) return setStatus('Choose a rating first', true);
-  if (state.rating !== 'unusable' && !state.main_length && !outlinePreview) {
+  if (state.rating !== 'unusable' && !state.main_length) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
   const button = $('#download-current');
@@ -1532,6 +1582,7 @@ $('#load-insecure').addEventListener('click', async () => {
 $('#reset-catalog').addEventListener('click', resetToCatalog);
 $('#rereview').addEventListener('click', rereview);
 $('#edit-metadata').addEventListener('click', editIndependentMetadata);
+$('#revision-metadata').addEventListener('click', editIndependentMetadata);
 wrap.addEventListener('dragover', event => {
   event.preventDefault();
   if (current) wrap.classList.add('dragging');
@@ -1548,6 +1599,20 @@ $('#previous').addEventListener('click', () => navigate(-1));
 $('#next').addEventListener('click', () => navigate(1));
 $('#download-current').addEventListener('click', downloadCurrent);
 $('#save-next').addEventListener('click', saveAndNext);
+$('#cancel-revision').addEventListener('click', () => cancelRevision().catch(error => setStatus(error.message, true)));
+$('#use-saved-photo').addEventListener('click', async () => {
+  try {
+    const response = await fetch($('#use-saved-photo').dataset.url);
+    if (!response.ok) throw await responseError(response);
+    await uploadAlternative(new File([await response.blob()], 'saved-photo.png', {type:'image/png'}));
+  } catch (error) { setStatus(error.message, true); }
+});
+$('#upload-photo').addEventListener('click', () => $('#photo-file').click());
+$('#photo-file').addEventListener('change', event => {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (file) uploadAlternative(file);
+});
 $('#filter').addEventListener('change', () => applyFilters());
 $('#type-filter').addEventListener('change', () => applyFilters());
 $('#measurements-filter').addEventListener('change', () => applyFilters());
@@ -1612,7 +1677,7 @@ window.beforeCatalogUpdate = async () => {
 };
 
 window.addEventListener('keydown', event => {
-  if ($('#variant-dialog').open || $('#variants-panel').open || outlinePreview) return;
+  if ($('#variant-dialog').open || $('#variants-panel').open) return;
   const toolShortcut = {a: 'add', e: 'erase', r: 'remask', w: 'length'}[event.key.toLowerCase()];
   if (toolShortcut && !event.ctrlKey && !event.metaKey && !event.altKey &&
       !event.target.matches('input:not([type="range"]), select, textarea, [contenteditable]')) {
@@ -1652,6 +1717,7 @@ window.addEventListener('popstate', () => {
   const urlState = parseEditorUrl(location.search);
   historyNavigation = historyNavigation.then(async () => {
     restoreEditorControls(urlState);
+    activeVariant = new URLSearchParams(location.search).get('variant') || '';
     await applyFilters('none', urlState.item, urlState.directItem);
     if (version === historyNavigationVersion && !urlState.directItem) {
       updateEditorUrl('replace', current?.id);
@@ -1699,7 +1765,11 @@ try {
     }
     restoreEditorControls(initialUrlState);
     await refreshItems();
+    const linked = new URLSearchParams(location.search);
+    activeVariant = linked.get('variant') || '';
+    const linkedEdit = linked.get('edit') === '1';
     await applyFilters('replace', initialUrlState.item, initialUrlState.directItem);
+    if (linkedEdit && current?.can_edit && current.read_only) await rereview();
   } catch (error) {
     setStatus(error.message, true);
   }

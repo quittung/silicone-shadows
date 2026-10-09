@@ -465,7 +465,7 @@ class HostedAppTest(unittest.TestCase):
             reopened = alice.post("/api/items/sample/prepare")
             self.assertEqual(reopened.status_code, 200, reopened.text)
         self.assertEqual(
-            (self.work_dir / "sample/rembg.png").read_bytes(), cached_rembg
+            (self.work_dir / "sample/.revision-original/rembg.png").read_bytes(), cached_rembg
         )
         released = alice.post("/api/items/sample/release")
         self.assertEqual(released.status_code, 204, released.text)

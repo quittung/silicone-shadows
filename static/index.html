@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows</title>
-  <link rel="stylesheet" href="/static/review.css?v=20261008-variants-10">
+  <link rel="stylesheet" href="/static/review.css?v=20261009-revisions-7">
   <link rel="stylesheet" href="/static/select.css?v=20260821-1">
   <link rel="stylesheet" href="/static/nav.css?v=20260923-2">
   <link rel="stylesheet" href="/static/metadata.css">
@@ -78,8 +78,8 @@
       </ul>
       <p>Use <strong>Search images</strong>, then paste or drop a better source when needed.
         Press <kbd>Space</kbd> to save and continue. Usable entries require a usable-length line.</p>
-      <p>Existing dataset entries open read-only. Choose <strong>Re-review</strong> only when
-        you intend to replace the published result.</p>
+      <p>Existing dataset entries open read-only. Choose <strong>Edit</strong> to open a working copy.
+        The saved result stays intact until you explicitly save; Cancel discards the working copy.</p>
       <button class="close" autofocus>Start reviewing</button>
     </form>
   </dialog>
@@ -136,7 +136,7 @@
           <div id="read-only-summary"></div>
           <div id="read-only-info" class="hint"></div>
           <div id="read-only-actions">
-            <button id="rereview" hidden>Re-review</button>
+            <button id="rereview" hidden>Edit</button>
             <button id="edit-metadata" hidden>Edit metadata</button>
           </div>
         </fieldset>
@@ -145,8 +145,13 @@
       <div id="edit-panel">
         <fieldset>
           <legend>Source image</legend>
+          <p id="revision-note" class="hint" hidden>Editing a working copy. Save revision applies your changes; Cancel keeps the saved result.</p>
           <div id="source-buttons" class="button-grid">
+            <button id="revision-metadata" style="grid-column:1/-1" hidden>Edit metadata</button>
             <button id="search-images">Search images</button>
+            <button id="upload-photo">Upload photo</button>
+            <button id="use-saved-photo" style="grid-column:1/-1" hidden>Use saved photo</button>
+            <input id="photo-file" type="file" accept="image/*" hidden>
             <button id="open-product" hidden>Open product</button>
             <button id="reset-catalog" style="grid-column:1/-1" hidden>Reset to catalog</button>
           </div>
@@ -204,7 +209,11 @@
           </div>
           <div class="button-grid export-actions">
             <button id="download-current">Download</button>
-            <button id="save-next"><span id="save-label">Save</span> <kbd>Space</kbd></button>
+            <button id="cancel-revision" aria-label="Cancel revision" hidden>Cancel</button>
+            <button id="save-next" title="Save (Space)" aria-keyshortcuts="Space">
+              <span id="save-label">Save</span>
+              <kbd aria-hidden="true"><svg viewBox="0 0 12 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 2.5v3h9v-3"/></svg></kbd>
+            </button>
           </div>
         </fieldset>
       </div>
@@ -244,6 +253,6 @@
   <script src="/static/nav.js?v=20260923-2"></script>
   <script src="/static/metadata.js"></script>
   <script src="/static/review-url.js?v=20260823-1"></script>
-  <script src="/static/review.js?v=20261008-variants-10"></script>
+  <script src="/static/review.js?v=20261009-revisions-4"></script>
 </body>
 </html>

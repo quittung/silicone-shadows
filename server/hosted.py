@@ -352,6 +352,29 @@ class HostedStore:
             )
             db.execute("DELETE FROM claims WHERE item_id = ?", (item_id,))
 
+    def save_submission_revision(
+        self,
+        item_id: str,
+        user: User,
+        source: str,
+        state_json: str,
+        replace: bool = False,
+        kind: str = "catalog",
+    ) -> None:
+        if not replace:
+            self.put_submission(item_id, user, source, state_json, kind=kind)
+            return
+        if not user.reviewer:
+            raise ClaimError("reviewer access required")
+        with self.connect() as db:
+            cursor = db.execute(
+                "UPDATE submissions SET source = ?, state_json = ?, kind = ? WHERE item_id = ?",
+                (source, state_json, kind, item_id),
+            )
+            if cursor.rowcount != 1:
+                raise ClaimError("submission changed during editing")
+            db.execute("DELETE FROM claims WHERE item_id = ?", (item_id,))
+
     def submission(self, item_id: str) -> sqlite3.Row | None:
         with self.connect() as db:
             return db.execute(
