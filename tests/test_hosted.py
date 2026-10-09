@@ -850,6 +850,34 @@ class HostedAppTest(unittest.TestCase):
         self.assertEqual(self.store.revoke_sessions("Alice"), 1)
         self.assertIsNone(alice.get("/api/session").json()["user"])
 
+    def test_claim_conflict_can_resume_or_release_existing_product(self) -> None:
+        shutil.copy(self.input_dir / "sample.jpg", self.input_dir / "other.jpg")
+        shutil.copytree(self.work_dir / "sample", self.work_dir / "other")
+        alice = self.login("Alice")
+        bob = self.login("Bob")
+        self.assertEqual(alice.post("/api/items/sample/prepare").status_code, 200)
+        draft = self.work_dir / "sample" / "edits.png"
+        Image.new("RGBA", (32, 24), (255, 0, 0, 255)).save(draft)
+
+        conflict = alice.post("/api/items/other/prepare")
+        self.assertEqual(conflict.status_code, 409)
+        self.assertEqual(
+            conflict.json()["detail"]["message"],
+            "Release the current product before opening another.",
+        )
+        self.assertEqual(conflict.json()["detail"]["current_item_id"], "sample")
+        self.assertTrue(draft.exists())
+        self.assertEqual(alice.post("/api/items/sample/prepare").status_code, 200)
+        self.assertTrue(draft.exists())
+
+        self.assertEqual(bob.post("/api/items/sample/release").status_code, 204)
+        self.assertTrue(draft.exists())
+        self.assertEqual(self.store.claims()["sample"]["name"], "Alice")
+        self.assertEqual(alice.post("/api/items/sample/release").status_code, 204)
+        self.assertFalse(draft.exists())
+        self.assertEqual(alice.post("/api/items/other/prepare").status_code, 200)
+        self.assertEqual(set(self.store.claims()), {"other"})
+
     def test_claim_has_idle_and_absolute_expiration(self) -> None:
         with patch("server.hosted.time.time", return_value=1000):
             token = self.store.create_invite("Alice")

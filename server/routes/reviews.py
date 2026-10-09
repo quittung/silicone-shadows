@@ -45,6 +45,14 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         try:
             _, expires_at = store.acquire_claim(item_id, user, workspace.discard_work)
         except ClaimError as error:
+            if error.current_item_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": str(error),
+                        "current_item_id": error.current_item_id,
+                    },
+                ) from error
             raise HTTPException(status_code=409, detail=str(error)) from error
         return expires_at
 

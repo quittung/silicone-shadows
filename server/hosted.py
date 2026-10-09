@@ -38,7 +38,9 @@ class User:
 
 
 class ClaimError(Exception):
-    pass
+    def __init__(self, message: str, current_item_id: str | None = None):
+        super().__init__(message)
+        self.current_item_id = current_item_id
 
 
 class HostedStore:
@@ -213,7 +215,10 @@ class HostedStore:
                 (user.id, item_id),
             ).fetchone()
             if other and self.claim_is_live(other, now):
-                raise ClaimError("release the current product before opening another")
+                raise ClaimError(
+                    "Release the current product before opening another.",
+                    current_item_id=other["item_id"],
+                )
             if target:
                 db.execute(
                     "UPDATE claims SET heartbeat_at = ? WHERE item_id = ?",

@@ -305,9 +305,14 @@ function setStatus(message, error = false) {
 
 async function responseError(response) {
   let message = `${response.status} ${response.statusText}`;
-  try { message = (await response.json()).detail || message; } catch (_) {}
+  let detail;
+  try {
+    detail = (await response.json()).detail;
+    message = detail?.message || detail || message;
+  } catch (_) {}
   const error = new Error(message);
   error.status = response.status;
+  error.currentItemId = detail?.current_item_id;
   return error;
 }
 
@@ -492,6 +497,8 @@ async function releaseCurrentClaim() {
 
 function showEmptyState(title, message) {
   clearInterval(claimHeartbeat);
+  $('#claim-recovery').hidden = true;
+  $('#show-all').hidden = false;
   const matchingCatalog = items.filter(matchesCatalogFilters);
   const complete = matchingCatalog.length > 0 &&
     $('#filter').value === 'available' &&
@@ -518,6 +525,28 @@ function showEmptyState(title, message) {
   $('#rereview').hidden = true;
   $('#edit-metadata').hidden = true;
   render();
+}
+
+function showClaimRecovery(error, retry) {
+  showEmptyState('Another product is still open', 'You already have a product claimed for review.');
+  $('#show-all').hidden = true;
+  $('#claim-recovery').hidden = false;
+  $('#claim-return').href = `/editor?item=${encodeURIComponent(error.currentItemId)}&measurements=all`;
+  $('#claim-return').focus();
+  $('#claim-release').onclick = async () => {
+    const button = $('#claim-release');
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/items/${encodeURIComponent(error.currentItemId)}/release`, {method:'POST'});
+      if (!response.ok) throw await responseError(response);
+      $('#claim-recovery').hidden = true;
+      await retry();
+    } catch (releaseError) {
+      setStatus(`Could not release product: ${releaseError.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  };
 }
 
 function setEditorDisabled(disabled) {
@@ -774,6 +803,9 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
       setSidebarMode('empty');
       render();
     }
+    if (error.currentItemId) {
+      showClaimRecovery(error, () => loadItem(itemId, urlMode, allowInvalidCertificate));
+    }
     setStatus(error.message, true);
   } finally {
     $('#load-insecure').disabled = false;
@@ -786,7 +818,7 @@ async function uploadAlternative(file) {
   if (!current || !file) return;
   if (current.read_only) {
     await rereview();
-    if (current?.read_only) return;
+    if (!current || current.read_only) return;
   }
   if ((state?.rating || state?.main_length || editsDirty) &&
       !confirm('Replace this source image and clear its current mask edits, rating, and length line?')) return;
@@ -844,6 +876,13 @@ async function rereview() {
     activeVariant = selectedVariant;
     await loadItem(itemId);
   } catch (error) {
+    if (error.currentItemId) {
+      showClaimRecovery(error, async () => {
+        activeVariant = selectedVariant;
+        await loadItem(itemId);
+        await rereview();
+      });
+    }
     setStatus(error.message, true);
   } finally {
     $('#loading').classList.remove('visible');
