@@ -412,7 +412,7 @@ def build_manifest(version: str, files: list[Path]) -> dict:
             raise ValueError(f"{path.relative_to(ROOT)} has unexpected metadata fields")
         if type(record["schema_version"]) is not int or record[
             "schema_version"
-        ] not in {1, 2}:
+        ] != 2:
             raise ValueError(f"{path.relative_to(ROOT)} has an invalid schema version")
         quality = record.get("quality")
         if quality not in QUALITIES:
@@ -444,6 +444,11 @@ def build_manifest(version: str, files: list[Path]) -> dict:
             record_ids.add(record_id)
             if not isinstance(record.get("sizes"), list):
                 raise ValueError(f"{path.relative_to(ROOT)} has invalid sizes")
+            if any(
+                not isinstance(size, dict) or size.get("unit") != "in"
+                for size in record["sizes"]
+            ):
+                raise ValueError(f"{path.relative_to(ROOT)} must use inches")
         else:
             if type(catalog_id) is not int or catalog_id in catalog_ids:
                 raise ValueError(

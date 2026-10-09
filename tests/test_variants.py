@@ -391,7 +391,7 @@ class VariantsTest(unittest.TestCase):
             3,
         )
 
-    def test_release_validation_accepts_mixed_versions_and_rejects_orphan_variants(
+    def test_release_validation_accepts_optional_variants_and_rejects_orphans(
         self,
     ):
         import shutil
@@ -406,7 +406,7 @@ class VariantsTest(unittest.TestCase):
         (legacy / "metadata.json").write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "catalog_id": 2,
                     "quality": "good",
                     "source": "catalog",

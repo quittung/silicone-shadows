@@ -36,6 +36,16 @@ class GuestSize(BaseModel):
     widest_label: str | None = Field(default=None, max_length=100)
     unit: Literal["in", "cm", "mm"]
 
+    def in_inches(self) -> dict:
+        """Export measurements in the dataset's unit without changing editor input."""
+        size = self.model_dump(mode="json")
+        divisor = {"in": 1, "cm": 2.54, "mm": 25.4}[self.unit]
+        for field in ("length", "circumference", "widest_circumference"):
+            if size[field] is not None:
+                size[field] /= divisor
+        size["unit"] = "in"
+        return size
+
 
 class GuestMetadata(BaseModel):
     submission_version: Literal[1] = 1

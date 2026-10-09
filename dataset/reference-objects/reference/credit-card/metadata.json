@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "record_id": "reference:credit-card",
   "catalog_id": null,
   "vendor": "Reference Objects",
@@ -16,11 +16,11 @@
       "label": "Standard",
       "short_label": "ID-1",
       "price": null,
-      "length": 85.6,
+      "length": 3.37007874015748,
       "circumference": null,
       "widest_circumference": null,
       "widest_label": null,
-      "unit": "mm"
+      "unit": "in"
     }
   ],
   "notes": "ISO/IEC 7810 ID-1 dimensions: 85.60 mm by 53.98 mm, with a 3.18 mm corner radius."

@@ -515,7 +515,7 @@ class Workspace:
     @staticmethod
     def record_document(product: dict, state: ReviewState, source: str) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "catalog_id": product["id"],
             "quality": state.rating,
             "source": source,
@@ -560,7 +560,7 @@ class Workspace:
     @staticmethod
     def independent_document(record_id: str, metadata: GuestMetadata) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "record_id": record_id,
             "catalog_id": None,
             "vendor": metadata.vendor,
@@ -572,7 +572,7 @@ class Workspace:
             "source": "alternative",
             "tags": metadata.tags,
             "features": metadata.features,
-            "sizes": [size.model_dump(mode="json") for size in metadata.sizes],
+            "sizes": [size.in_inches() for size in metadata.sizes],
             "notes": metadata.notes,
         }
 
@@ -659,7 +659,7 @@ class Workspace:
                 ),
             )
             if variants:
-                document.update(schema_version=2, variants=variants)
+                document["variants"] = variants
             if variants is not None:
                 write_variants(directory, variants, variants_directory)
             atomic_json(directory / "metadata.json", document)
@@ -708,7 +708,7 @@ class Workspace:
                 old_metadata["variants"],
                 {size_key(size.model_dump(), True) for size in metadata.sizes},
             )
-            document.update(schema_version=2, variants=old_metadata["variants"])
+            document["variants"] = old_metadata["variants"]
         new_directory = (
             self.dataset_dir
             / slug(metadata.vendor)

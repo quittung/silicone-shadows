@@ -34,7 +34,7 @@ class ReleaseDatasetTest(unittest.TestCase):
                 notes.read_text().index("- Changes:"),
             )
             self.assertNotIn("shadows@qtng.dev", notes.read_text())
-            self.assertIn("Metadata format version: 1", notes.read_text())
+            self.assertIn("Metadata format version: 2", notes.read_text())
             self.assertIn("Dataset dedication: CC0-1.0", notes.read_text())
             self.assertIn("dataset/LICENSE", names)
             self.assertIn("dataset/NOTICE.md", names)
@@ -154,7 +154,7 @@ class ReleaseDatasetTest(unittest.TestCase):
             (root / "catalog_source.json").write_text(json.dumps(config))
             record = root / "dataset" / "vendor" / "type" / "name" / "metadata.json"
             record.parent.mkdir(parents=True)
-            record.write_text(json.dumps({"schema_version": 1, "catalog_id": 1,
+            record.write_text(json.dumps({"schema_version": 2, "catalog_id": 1,
                                           "quality": "unusable", "source": "catalog"}))
             git("add", ".")
             git("commit", "-qm", "Initial")

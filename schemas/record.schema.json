@@ -11,7 +11,7 @@
     "source"
   ],
   "properties": {
-    "schema_version": { "enum": [1, 2] },
+    "schema_version": { "const": 2 },
     "record_id": { "type": "string", "minLength": 1 },
     "catalog_id": { "type": ["integer", "null"] },
     "vendor": { "type": "string", "minLength": 1 },
@@ -41,7 +41,7 @@
           "circumference": { "type": ["number", "null"], "exclusiveMinimum": 0 },
           "widest_circumference": { "type": ["number", "null"], "exclusiveMinimum": 0 },
           "widest_label": { "type": ["string", "null"] },
-          "unit": { "enum": ["in", "cm", "mm"] }
+          "unit": { "const": "in" }
         }
       }
     },
@@ -72,15 +72,5 @@
       "record_id", "vendor", "product_type", "name", "product_url", "species",
       "tags", "features", "sizes", "notes"
     ]
-  },
-  "allOf": [
-    {
-      "if": { "properties": { "schema_version": { "const": 1 } } },
-      "then": { "not": { "required": ["variants"] } }
-    },
-    {
-      "if": { "required": ["variants"] },
-      "then": { "properties": { "schema_version": { "const": 2 } } }
-    }
-  ]
+  }
 }

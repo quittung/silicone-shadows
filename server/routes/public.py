@@ -123,10 +123,15 @@ def _locked_svg_bytes(
 
 def _archive(metadata: GuestMetadata, svg: bytes) -> bytes:
     archive = BytesIO()
+    document = metadata.model_dump(mode="json", exclude_none=True)
+    document["sizes"] = [
+        {key: value for key, value in size.in_inches().items() if value is not None}
+        for size in metadata.sizes
+    ]
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         bundle.writestr(
             "metadata.json",
-            json.dumps(metadata.model_dump(mode="json", exclude_none=True), indent=2)
+            json.dumps(document, indent=2)
             + "\n",
         )
         bundle.writestr("outline.svg", svg)

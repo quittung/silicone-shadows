@@ -765,7 +765,10 @@ class HostedAppTest(unittest.TestCase):
             archived_metadata = json.loads(archive.read("metadata.json"))
             svg = ET.fromstring(archive.read("outline.svg"))
         self.assertEqual(archived_metadata["vendor"], "Example Maker")
-        self.assertEqual(archived_metadata["sizes"][0]["unit"], "cm")
+        self.assertEqual(archived_metadata["sizes"][0]["unit"], "in")
+        self.assertAlmostEqual(
+            archived_metadata["sizes"][0]["length"], metadata["sizes"][0]["length"] / 2.54
+        )
         self.assertEqual(archived_metadata["features"], ["sc"])
         self.assertIsNotNone(
             next(
