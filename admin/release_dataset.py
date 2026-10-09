@@ -86,16 +86,22 @@ def dataset_files() -> list[Path]:
     return sorted(path for path in (ROOT / "dataset").rglob("*") if path.is_file())
 
 
-def snapshot(contents: list[tuple[str, bytes]]) -> tuple[dict[str, str], Counter[str]]:
+def snapshot(
+    contents: list[tuple[str, bytes]], *, ignore_schema_version: bool = False
+) -> tuple[dict[str, str], Counter[str]]:
     files = {}
     qualities: Counter[str] = Counter()
     for name, content in contents:
-        files[name] = hashlib.sha256(content).hexdigest()
         if name.endswith("/metadata.json"):
-            quality = json.loads(content).get("quality")
+            record = json.loads(content)
+            quality = record.get("quality")
             if quality not in QUALITIES:
                 raise ValueError(f"{name} has invalid quality {quality!r}")
             qualities[quality] += 1
+            if ignore_schema_version:
+                record.pop("schema_version", None)
+                content = json.dumps(record, sort_keys=True).encode("utf-8")
+        files[name] = hashlib.sha256(content).hexdigest()
     return files, qualities
 
 
@@ -109,7 +115,9 @@ def directory_snapshot(root: Path) -> tuple[dict[str, str], Counter[str]]:
     )
 
 
-def latest_release_snapshot() -> tuple[str, tuple[dict[str, str], Counter[str]]]:
+def latest_release_snapshot(
+    *, ignore_schema_version: bool = False
+) -> tuple[str, tuple[dict[str, str], Counter[str]]]:
     release = json.loads(
         subprocess.check_output(
             ["gh", "release", "view", "--json", "tagName,targetCommitish"],
@@ -140,7 +148,7 @@ def latest_release_snapshot() -> tuple[str, tuple[dict[str, str], Counter[str]]]
             source = bundle.extractfile(member)
             if source is not None:
                 contents.append((member.name.removeprefix("dataset/"), source.read()))
-    return tag, snapshot(contents)
+    return tag, snapshot(contents, ignore_schema_version=ignore_schema_version)
 
 
 def report_snapshot(label: str, current: tuple[dict[str, str], Counter[str]]) -> None:
@@ -561,7 +569,9 @@ def record_changes(
         Path(name).parent for name in after if name.endswith("/metadata.json")
     }
     changed_files = {
-        Path(name).parent
+        Path(name).parent.parent
+        if Path(name).parent.name == "variants" and Path(name).suffix == ".svg"
+        else Path(name).parent
         for name in before.keys() | after.keys()
         if before.get(name) != after.get(name)
     }
@@ -577,9 +587,13 @@ def release_notes(manifest: dict, changes: tuple[int, int, int]) -> str:
     quality = records["quality"]
     catalog = manifest["catalog"]
     added, updated, removed = changes
+    notes_path = ROOT / "admin" / "release-notes" / f"{manifest['dataset_version']}.md"
+    introduction = ""
+    if notes_path.is_file():
+        introduction = notes_path.read_text(encoding="utf-8").strip() + "\n\n"
     return f"""Silhouette dataset snapshot for Fantasy Toybox catalog v{catalog["version"]}.
 
-- Records: {records["total"]} ({quality["good"]} good, {quality["bad_perspective"]} bad perspective, {quality["unusable"]} unusable)
+{introduction}- Records: {records["total"]} ({quality["good"]} good, {quality["bad_perspective"]} bad perspective, {quality["unusable"]} unusable)
 - Changes: {added} added, {updated} updated, {removed} removed
 - Metadata format version: {manifest["schema_version"]}
 - Dataset dedication: CC0-1.0, to the extent contributors hold applicable rights
@@ -595,12 +609,13 @@ def build(version: str, output_dir: Path) -> tuple[Path, Path]:
     validate_release_name(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
-    _, (previous_files, _) = latest_release_snapshot()
+    _, (previous_files, _) = latest_release_snapshot(ignore_schema_version=True)
     current_files, _ = snapshot(
         [
             (path.relative_to(ROOT / "dataset").as_posix(), path.read_bytes())
             for path in files
-        ]
+        ],
+        ignore_schema_version=True,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     archive = output_dir / f"silicone-shadows-dataset-{version}.zip"

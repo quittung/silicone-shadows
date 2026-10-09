@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "catalog_id": 1919,
+  "quality": "good",
+  "source": "alternative",
+  "variants": {
+    "v-c98ba410-cf4e-4f72-bfc4-122cd37ff5c2": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-c98ba410-cf4e-4f72-bfc4-122cd37ff5c2.svg"
+    }
+  }
+}

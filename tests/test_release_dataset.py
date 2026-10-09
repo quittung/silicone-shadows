@@ -133,6 +133,67 @@ class ReleaseDatasetTest(unittest.TestCase):
         )[0]
         self.assertEqual(release_dataset.record_changes(before, after), (1, 1, 1))
 
+    def test_release_counts_ignore_only_schema_version_and_json_formatting(self):
+        original = {"schema_version": 1, "catalog_id": 123, "quality": "good"}
+        migrated = {**original, "schema_version": 2}
+        before = [("a/metadata.json", json.dumps(original).encode())]
+        after = [("a/metadata.json", json.dumps(migrated, indent=2).encode())]
+        self.assertNotEqual(
+            release_dataset.snapshot(before), release_dataset.snapshot(after)
+        )
+        baseline = release_dataset.snapshot(before, ignore_schema_version=True)[0]
+        current = release_dataset.snapshot(after, ignore_schema_version=True)[0]
+        self.assertEqual(release_dataset.record_changes(baseline, current), (0, 0, 0))
+        for field, value in (
+            ("quality", "unusable"),
+            ("catalog_id", 456),
+            ("sizes", [{"unit": "in", "length": 6}]),
+            ("variants", {"large": {"sizes": ["Large"]}}),
+        ):
+            with self.subTest(field=field):
+                changed = [
+                    ("a/metadata.json", json.dumps({**migrated, field: value}).encode())
+                ]
+                current = release_dataset.snapshot(changed, ignore_schema_version=True)[
+                    0
+                ]
+                self.assertEqual(
+                    release_dataset.record_changes(baseline, current), (0, 1, 0)
+                )
+
+    def test_variant_svg_changes_count_the_product_once(self):
+        metadata = ("a/metadata.json", b'{"quality":"good"}')
+        before = release_dataset.snapshot([metadata, ("a/variants/large.svg", b"old")])[
+            0
+        ]
+        for outlines in (
+            [],
+            [("a/variants/large.svg", b"new")],
+            [("a/variants/large.svg", b"old"), ("a/variants/small.svg", b"new")],
+        ):
+            with self.subTest(outlines=outlines):
+                after = release_dataset.snapshot([metadata, *outlines])[0]
+                self.assertEqual(
+                    release_dataset.record_changes(before, after), (0, 1, 0)
+                )
+
+    def test_schema_transition_notes_are_specific_to_v18(self):
+        manifest = {
+            "dataset_version": "v18",
+            "schema_version": 2,
+            "catalog": {"version": 241},
+            "records": {
+                "total": 1,
+                "quality": {"good": 1, "bad_perspective": 0, "unusable": 0},
+            },
+        }
+        notes = release_dataset.release_notes(manifest, (0, 1, 0))
+        self.assertIn("first release using **dataset schema 2**", notes)
+        self.assertLess(notes.index("first release"), notes.index("- Records:"))
+        self.assertIn("must not fall back", notes)
+        manifest["dataset_version"] = "v19"
+        self.assertNotIn("first release", release_dataset.release_notes(manifest, (0, 0, 0)))
+
     def test_sync_hosted_can_extend_check_mode(self):
         with patch(
             "sys.argv", ["admin/release_dataset.py", "--check", "--sync-hosted"]

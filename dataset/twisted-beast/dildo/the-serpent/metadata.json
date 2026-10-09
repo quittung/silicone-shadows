@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "catalog_id": 1934,
+  "quality": "unusable",
+  "source": "alternative",
+  "variants": {
+    "v-e838ee60-40e3-4f02-abf7-d5e22c7baf7d": {
+      "sizes": [
+        "XL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-e838ee60-40e3-4f02-abf7-d5e22c7baf7d.svg"
+    },
+    "v-b7a16a64-caa9-4031-b1b9-a02bc21e38ce": {
+      "sizes": [
+        "XXL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-b7a16a64-caa9-4031-b1b9-a02bc21e38ce.svg"
+    }
+  }
+}

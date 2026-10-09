@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "catalog_id": 1929,
+  "quality": "unusable",
+  "source": "alternative",
+  "variants": {
+    "v-90a9ccb7-05b4-486b-94cc-766d6cd2befa": {
+      "sizes": [
+        "Small"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-90a9ccb7-05b4-486b-94cc-766d6cd2befa.svg"
+    },
+    "v-c6238d34-b3e0-48e4-a9f8-68a8f4c7f712": {
+      "sizes": [
+        "Medium"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-c6238d34-b3e0-48e4-a9f8-68a8f4c7f712.svg"
+    },
+    "v-df24bad6-53ab-419c-be4f-b6f39d76d0ec": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-df24bad6-53ab-419c-be4f-b6f39d76d0ec.svg"
+    },
+    "v-1b68ab4e-a07b-4cae-8b7a-2f162ba3f7be": {
+      "sizes": [
+        "XL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-1b68ab4e-a07b-4cae-8b7a-2f162ba3f7be.svg"
+    },
+    "v-15c25331-707a-4eca-95f7-cad48e3040f6": {
+      "sizes": [
+        "XXL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-15c25331-707a-4eca-95f7-cad48e3040f6.svg"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "schema_version": 2,
+  "catalog_id": 1926,
+  "quality": "unusable",
+  "source": "catalog",
+  "variants": {
+    "v-0982b341-f6b7-492f-8ea3-4ef28d1aa735": {
+      "sizes": [
+        "XS"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-0982b341-f6b7-492f-8ea3-4ef28d1aa735.svg"
+    },
+    "v-c1352ee2-134c-4988-9f4e-9baa4dfedabf": {
+      "sizes": [
+        "Small"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-c1352ee2-134c-4988-9f4e-9baa4dfedabf.svg"
+    },
+    "v-a298afd6-eff5-4294-8ecd-d15cde2a3833": {
+      "sizes": [
+        "Medium"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-a298afd6-eff5-4294-8ecd-d15cde2a3833.svg"
+    },
+    "v-980509b3-676b-47f4-aef6-bcc735087042": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-980509b3-676b-47f4-aef6-bcc735087042.svg"
+    },
+    "v-bd224300-49aa-4485-ae47-87c06a05b294": {
+      "sizes": [
+        "XL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-bd224300-49aa-4485-ae47-87c06a05b294.svg"
+    },
+    "v-8c5c7d7d-baf2-41b5-8399-a5d35006ed32": {
+      "sizes": [
+        "XXL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-8c5c7d7d-baf2-41b5-8399-a5d35006ed32.svg"
+    },
+    "v-6d1d4792-99e2-4aa5-98d5-0019ccbf1ab5": {
+      "sizes": [
+        "3XL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-6d1d4792-99e2-4aa5-98d5-0019ccbf1ab5.svg"
+    },
+    "v-fd95f56d-fa4d-405b-8bc7-947f55986cf1": {
+      "sizes": [
+        "4XL"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-fd95f56d-fa4d-405b-8bc7-947f55986cf1.svg"
+    }
+  }
+}

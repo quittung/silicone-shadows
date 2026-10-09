@@ -1,6 +1,24 @@
 {
   "schema_version": 2,
   "catalog_id": 1744,
-  "quality": "good",
-  "source": "alternative"
+  "quality": "unusable",
+  "source": "alternative",
+  "variants": {
+    "v-356bf33b-dc4e-413c-9845-166b466ed905": {
+      "sizes": [
+        "Medium"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-356bf33b-dc4e-413c-9845-166b466ed905.svg"
+    },
+    "v-b8fea28d-ef7f-4c59-8b3d-ac485d3f151c": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-b8fea28d-ef7f-4c59-8b3d-ac485d3f151c.svg"
+    }
+  }
 }

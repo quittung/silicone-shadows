@@ -1,0 +1,32 @@
+{
+  "schema_version": 2,
+  "catalog_id": 1927,
+  "quality": "unusable",
+  "source": "alternative",
+  "variants": {
+    "v-92141537-cb56-457e-ad70-3ca81721fa11": {
+      "sizes": [
+        "Small"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-92141537-cb56-457e-ad70-3ca81721fa11.svg"
+    },
+    "v-fb4e8747-c4a2-494e-a5d2-1accd62c4e56": {
+      "sizes": [
+        "Medium"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-fb4e8747-c4a2-494e-a5d2-1accd62c4e56.svg"
+    },
+    "v-9f5dc22a-1375-4890-893d-dd6800a88077": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-9f5dc22a-1375-4890-893d-dd6800a88077.svg"
+    }
+  }
+}
