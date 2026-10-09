@@ -780,7 +780,7 @@ async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = f
     $('#threshold').disabled = savedOutlineMode;
     $('[data-tool=remask]').disabled = savedOutlineMode;
     $('#source-info').textContent = savedOutlineMode
-      ? 'Editing saved outline without a reference photo. Paste, drop or upload a photo to use the normal image tools.'
+      ? 'Editing saved outline without a reference photo. Paste or drop a photo to use the normal image tools.'
       : details.has_alternative
       ? 'Alternative image active. Drop or paste another to replace it.'
       : 'Drop or paste an image onto the canvas.';
@@ -1645,12 +1645,6 @@ $('#use-saved-photo').addEventListener('click', async () => {
     if (!response.ok) throw await responseError(response);
     await uploadAlternative(new File([await response.blob()], 'saved-photo.png', {type:'image/png'}));
   } catch (error) { setStatus(error.message, true); }
-});
-$('#upload-photo').addEventListener('click', () => $('#photo-file').click());
-$('#photo-file').addEventListener('change', event => {
-  const file = event.target.files[0];
-  event.target.value = '';
-  if (file) uploadAlternative(file);
 });
 $('#filter').addEventListener('change', () => applyFilters());
 $('#type-filter').addEventListener('change', () => applyFilters());
