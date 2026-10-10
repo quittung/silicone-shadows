@@ -95,7 +95,7 @@ async function processImage(file) {
     }
     const queued = await json(await fetch('/api/public/queue', {method: 'POST'}));
     await waitUntilReady(queued.ticket);
-    setStatus($('#upload-status'), 'Removing background…');
+    setStatus($('#upload-status'), 'Preparing mask…');
     const body = new FormData();
     body.append('ticket', queued.ticket);
     body.append('image', file, file.name);
@@ -221,7 +221,9 @@ function render() {
   ctx.drawImage(sourceCanvas, 0, 0);
   if (viewMode === 'overlay') {
     ctx.globalAlpha = Number($('#opacity').value) / 100;
+    ctx.globalCompositeOperation = 'source-atop';
     ctx.drawImage(overlayCanvas, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     if (!activeStroke) ctx.drawImage(edgeCanvas, 0, 0);
   } else if (viewMode === 'cutout') {
@@ -229,6 +231,11 @@ function render() {
     ctx.drawImage(maskCanvas, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }
+  // Display-only matte: keep black cutouts visible without flattening their alpha.
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.fillStyle = '#ecece8';
+  ctx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+  ctx.globalCompositeOperation = 'source-over';
   drawLength(ctx);
   if (hoverPoint && ['add', 'erase'].includes(tool)) {
     ctx.save();
@@ -653,7 +660,7 @@ fetch('/api/session').then(json).then(session => {
     : 'Create an outline from a photo';
   $('#independent-description').textContent = sessionUser
     ? 'Start from your own photo instead of Toybox data, then download the result or submit it for review.'
-    : 'Select, drop, or paste a product photo to remove its background and edit the outline.';
+    : 'Select, drop, or paste a product image to create or refine its outline.';
   $('#retention-hint').textContent = sessionUser
     ? 'Download your work or submit it for review.'
     : 'Nothing is saved on the server; download before leaving.';

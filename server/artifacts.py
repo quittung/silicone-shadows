@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from outline import largest_component
 
@@ -31,6 +31,13 @@ def atomic_image(path: Path, image: Image.Image) -> None:
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     atomic_bytes(path, buffer.getvalue())
+
+
+def normalize_source(image: Image.Image) -> Image.Image:
+    """Orient source photos while preserving an existing alpha channel."""
+    oriented = ImageOps.exif_transpose(image)
+    has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+    return oriented.convert("RGBA" if has_alpha else "RGB")
 
 
 def item_directory(root: Path, item_id: str) -> Path:

@@ -12,12 +12,18 @@ from tempfile import TemporaryDirectory
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
-from PIL import Image, ImageOps
+from PIL import Image
 from pydantic import ValidationError
 
 from outline import largest_component, trace_aligned_svg, trace_svg
 
-from ..artifacts import atomic_bytes, atomic_image, atomic_json, validate_length
+from ..artifacts import (
+    atomic_bytes,
+    atomic_image,
+    atomic_json,
+    normalize_source,
+    validate_length,
+)
 from ..hosted import QueueError
 from ..models import GuestMetadata, IndependentSubmission, MainLength, PublicTicket
 from ..workspace import Workspace
@@ -64,7 +70,7 @@ def _decode_source(data: bytes) -> Image.Image:
                 raise HTTPException(
                     status_code=413, detail="source image has too many pixels"
                 )
-            image = ImageOps.exif_transpose(uploaded).convert("RGB")
+            image = normalize_source(uploaded)
             image.load()
             return image
     except OSError as error:

@@ -13,7 +13,7 @@ from urllib.parse import quote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
-from PIL import Image, ImageOps
+from PIL import Image
 
 from .artifacts import (
     atomic_bytes,
@@ -21,6 +21,7 @@ from .artifacts import (
     atomic_json,
     item_directory,
     item_paths,
+    normalize_source,
     read_state,
 )
 from .catalog import slug, ssl_context_for
@@ -358,6 +359,13 @@ class Workspace:
         self._prune_catalog_cache()
 
     def remove_background(self, data: bytes) -> bytes:
+        with Image.open(BytesIO(data)) as image:
+            source = normalize_source(image)
+            if source.mode == "RGBA" and source.getchannel("A").getextrema()[0] < 255:
+                # An existing cutout is already a mask; don't infer its shape again.
+                output = BytesIO()
+                source.save(output, format="PNG")
+                return output.getvalue()
         from rembg import new_session, remove
 
         with self.session_lock:
@@ -494,7 +502,7 @@ class Workspace:
             with self.session_lock:
                 if not paths["source"].exists():
                     with Image.open(source) as image:
-                        normalized = ImageOps.exif_transpose(image).convert("RGB")
+                        normalized = normalize_source(image)
                     atomic_image(paths["source"], normalized)
                 if not paths["rembg"].exists():
                     atomic_bytes(

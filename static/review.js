@@ -1077,7 +1077,9 @@ function render() {
   if (current?.read_only) return;
   if (viewMode === 'overlay') {
     ctx.globalAlpha = Number($('#opacity').value) / 100;
+    ctx.globalCompositeOperation = 'source-atop';
     ctx.drawImage(overlayCanvas, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.drawImage(edgeCanvas, 0, 0);
   } else if (viewMode === 'cutout') {
@@ -1085,6 +1087,11 @@ function render() {
     ctx.drawImage(maskCanvas, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }
+  // Display-only matte: keep black cutouts visible without flattening their alpha.
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.fillStyle = '#ecece8';
+  ctx.fillRect(0, 0, sourceImage.naturalWidth, sourceImage.naturalHeight);
+  ctx.globalCompositeOperation = 'source-over';
   if (activeCrop) {
     const left = Math.min(activeCrop.start[0], activeCrop.end[0]);
     const top = Math.min(activeCrop.start[1], activeCrop.end[1]);

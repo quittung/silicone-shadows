@@ -11,7 +11,7 @@ from urllib.parse import quote, urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
-from PIL import Image, ImageOps
+from PIL import Image
 
 
 from ..artifacts import (
@@ -19,6 +19,7 @@ from ..artifacts import (
     atomic_image,
     atomic_json,
     length_preview,
+    normalize_source,
     read_state,
     svg_main_length,
     validate_length,
@@ -575,7 +576,12 @@ def register(app: FastAPI, workspace: Workspace) -> None:
         if not (0 <= left < right <= width and 0 <= top < bottom <= height):
             raise HTTPException(status_code=400, detail="crop is outside the image")
         with Image.open(paths["source"]) as image:
-            crop = image.convert("RGB").crop((left, top, right, bottom))
+            # Explicit redetection needs an opaque photo, with transparent pixels
+            # composited onto a neutral background rather than turned black.
+            crop = image.crop((left, top, right, bottom)).convert("RGBA")
+            photo = Image.new("RGBA", crop.size, "#ecece8")
+            photo.alpha_composite(crop)
+            crop = photo.convert("RGB")
         data = BytesIO()
         crop.save(data, format="PNG")
         return Response(
@@ -750,7 +756,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     raise HTTPException(
                         status_code=413, detail="alternative image has too many pixels"
                     )
-                alternative = ImageOps.exif_transpose(uploaded).convert("RGB")
+                alternative = normalize_source(uploaded)
                 alternative.load()
         except OSError as error:
             raise HTTPException(
