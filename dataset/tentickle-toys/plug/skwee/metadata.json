@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "catalog_id": 4513,
+  "quality": "unusable",
+  "source": "catalog",
+  "variants": {
+    "v-a39b39cb-0387-4571-8cd7-1a46b4723d5d": {
+      "sizes": [
+        "Small"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-a39b39cb-0387-4571-8cd7-1a46b4723d5d.svg"
+    },
+    "v-f04e0b0c-a685-444c-9bf3-84492644dae6": {
+      "sizes": [
+        "Large"
+      ],
+      "quality": "good",
+      "source": "alternative",
+      "file": "variants/v-f04e0b0c-a685-444c-9bf3-84492644dae6.svg"
+    }
+  }
+}
