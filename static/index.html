@@ -78,6 +78,8 @@
       </ul>
       <p>Use <strong>Search images</strong>, then paste or drop a better source when needed.
         Press <kbd>Space</kbd> to save and continue. Usable entries require a usable-length line.</p>
+      <p>Press <kbd>Ctrl+C</kbd> to copy the current product link when no text is selected
+        and you are not typing in a field.</p>
       <p>Existing dataset entries open read-only. Choose <strong>Edit</strong> to open a working copy.
         The saved result stays intact until you explicitly save; Cancel discards the working copy.</p>
       <button class="close" autofocus>Start reviewing</button>
@@ -155,7 +157,7 @@
             <button id="revision-metadata" style="grid-column:1/-1" hidden>Edit metadata</button>
             <button id="search-images">Search images</button>
             <button id="use-saved-photo" style="grid-column:1/-1" hidden>Use saved photo</button>
-            <button id="open-product" hidden>Open product</button>
+            <button id="open-product" title="Open product · Ctrl+C copies its link" hidden>Open product</button>
             <button id="reset-catalog" style="grid-column:1/-1" hidden>Reset to catalog</button>
           </div>
           <div id="source-info" class="hint" style="margin-top:.55rem">Drop or paste an image onto the canvas.</div>
@@ -256,6 +258,6 @@
   <script src="/static/nav.js?v=20260923-2"></script>
   <script src="/static/metadata.js"></script>
   <script src="/static/review-url.js?v=20260823-1"></script>
-  <script src="/static/review.js?v=20261010-rgba-1"></script>
+  <script src="/static/review.js?v=20261011-copy-link-1"></script>
 </body>
 </html>

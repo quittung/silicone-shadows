@@ -1738,6 +1738,16 @@ window.addEventListener('keydown', event => {
   else if (event.key === 'ArrowLeft') navigate(-1);
   else if (event.key === 'ArrowRight') navigate(1);
 });
+window.addEventListener('copy', event => {
+  if (event.defaultPrevented || !event.clipboardData ||
+      event.target.closest('input, textarea, select, [contenteditable], dialog') ||
+      document.querySelector('dialog[open]') || !window.getSelection().isCollapsed) return;
+  const url = current && $('#open-product').dataset.url;
+  if (!url) return;
+  event.clipboardData.setData('text/plain', url);
+  event.preventDefault();
+  setStatus('Product link copied.');
+});
 window.addEventListener('paste', event => {
   if (performance.now() < suppressPasteUntil) {
     event.preventDefault();
