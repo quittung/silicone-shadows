@@ -36,12 +36,15 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
             "/api/public/rembg",
             "/api/public/archive",
             "/api/public/submit",
-        }:
+            "/api/editor/process",
+        } or (path.startswith("/api/editor/items/") and path.endswith("/commit")):
             content_length = request.headers.get("content-length")
             if content_length:
                 try:
                     limit = (
-                        34 * 1024 * 1024
+                        130 * 1024 * 1024
+                        if path.endswith("/commit")
+                        else 34 * 1024 * 1024
                         if path == "/api/public/submit"
                         else 17 * 1024 * 1024
                     )

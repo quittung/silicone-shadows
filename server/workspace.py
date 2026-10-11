@@ -75,6 +75,8 @@ class Workspace:
                 raise ValueError("hosted mode requires a dataset directory")
             self.pending_dir.mkdir(parents=True, exist_ok=True)
 
+        self._record_cache_lock = threading.RLock()
+        self._independent_cache = None
         self.load_catalog(products_path)
 
         self._rembg_session = None
@@ -249,8 +251,18 @@ class Workspace:
             raise HTTPException(status_code=404, detail="unknown item") from error
 
     def require_item(self, item_id: str) -> None:
-        if item_id not in self.queue_items():
-            raise HTTPException(status_code=404, detail="unknown item")
+        if item_id in self.catalog_by_stem or item_id in self.sources():
+            return
+        if item_id in self.independent_records():
+            return
+        if self.hosted_store and self.hosted_store.submission(item_id):
+            return
+        # External dataset imports can add an independent entry between refreshes.
+        if item_id.startswith("community:"):
+            self.invalidate_record_cache()
+            if item_id in self.independent_records():
+                return
+        raise HTTPException(status_code=404, detail="unknown item")
 
     def validate_metadata_options(self, metadata: GuestMetadata) -> None:
         options = self.metadata_options
@@ -349,14 +361,15 @@ class Workspace:
                     self.catalog_sources[item_id].unlink(missing_ok=True)
                 excess -= 1
 
-    def _touch_catalog_cache(self, item_id: str) -> None:
+    def _touch_catalog_cache(self, item_id: str, prune: bool = False) -> None:
         if item_id not in self.catalog_sources:
             return
         paths = self.paths(item_id)
         with self._cache_lock:
             if paths["directory"].is_dir():
                 os.utime(paths["directory"])
-        self._prune_catalog_cache()
+        if prune:
+            self._prune_catalog_cache()
 
     def remove_background(self, data: bytes) -> bytes:
         with Image.open(BytesIO(data)) as image:
@@ -498,7 +511,8 @@ class Workspace:
         )
         paths["directory"].mkdir(parents=True, exist_ok=True)
 
-        if not paths["source"].exists() or not paths["rembg"].exists():
+        newly_prepared = not paths["source"].exists() or not paths["rembg"].exists()
+        if newly_prepared:
             with self.session_lock:
                 if not paths["source"].exists():
                     with Image.open(source) as image:
@@ -512,7 +526,7 @@ class Workspace:
 
         with Image.open(paths["rembg"]) as image:
             width, height = image.size
-        self._touch_catalog_cache(item_id)
+        self._touch_catalog_cache(item_id, prune=newly_prepared)
         return paths, width, height
 
     def unpublish(self, item_id: str) -> None:
@@ -610,6 +624,12 @@ class Workspace:
         }
 
     def independent_records(self) -> dict[str, tuple[dict, Path]]:
+        with self._record_cache_lock:
+            if self._independent_cache is None:
+                self._independent_cache = self._read_independent_records()
+            return self._independent_cache
+
+    def _read_independent_records(self) -> dict[str, tuple[dict, Path]]:
         records = {}
         if not self.dataset_dir:
             return records
@@ -777,7 +797,12 @@ class Workspace:
         self.dataset_changed()
         return new_directory
 
+    def invalidate_record_cache(self) -> None:
+        with self._record_cache_lock:
+            self._independent_cache = None
+
     def dataset_changed(self) -> None:
+        self.invalidate_record_cache()
         if self.on_dataset_change:
             self.on_dataset_change()
 

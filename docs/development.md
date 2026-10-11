@@ -107,3 +107,34 @@ any dataset changes. Catalog-only updates are included too, and the release
 manifest uses that pin. Sync refuses to downgrade a newer repository pin.
 `--check --sync-hosted` reports the released, local, and hosted catalog versions.
 Deploy this app version before syncing, so the hosted source descriptor exists.
+
+## Editor data lifecycle
+
+`static/editor-session.js` owns the complete product draft in browser memory.
+Opening `/api/editor/items/{id}/open` acquires the existing 15-minute claim and
+returns a fingerprinted baseline, outline geometry, metadata and asset URLs.
+Published SVGs become editable pixels in the browser without uploading a mask.
+Painting, ratings, length lines, variant assignments and metadata changes do
+not write server draft state. Moving away or Cancel discards the working copy.
+
+`/api/editor/process` returns a transient background-removal result. The client
+keeps both source and mask and adopts them only after processing succeeds.
+Inference runs outside the event loop, with one processing operation per server.
+Source preparation for unworked catalog entries remains a reusable image cache.
+
+Save sends a complete multipart document to `/api/editor/items/{id}/commit`.
+The server verifies the claim and baseline fingerprint, builds temporary
+artifacts, and reuses `review_commit.save_review` for whole-product validation,
+SVG export and publication or moderation staging. Untouched SVG paths stay
+vector data; raster masks are uploaded only for new photos or shape edits.
+Archive export uses the same path without committing the draft. Existing review
+routes remain compatible with older clients and share this commit service.
+
+Independent metadata is cached until a dataset change or explicit comparison
+reload. Compare continues serving its previous snapshot during a debounced
+rebuild. The editor updates its catalog summary after Save rather than fetching
+the entire catalog after individual edits.
+
+Claim expiry suspends editing without clearing the browser document. Resume
+editing reacquires a claim and checks the same baseline before restoring the
+tools. Reloading or leaving a dirty tab displays the browser unsaved-work warning.

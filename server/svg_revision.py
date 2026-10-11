@@ -22,6 +22,55 @@ OUTLINE_REVISION_FILES = (
 )
 
 
+def outline_canvas(saved_svg: Path):
+    """Describe the saved silhouette in editable pixels without writing artifacts."""
+    state = ReviewState()
+    svg = ET.parse(saved_svg).getroot()
+    x, y, width, height = map(float, svg.get("viewBox").split())
+    baseline = svg_main_length(saved_svg)
+    maximum_x = max(x + width, baseline.start[0], baseline.end[0])
+    maximum_y = max(y + height, baseline.start[1], baseline.end[1])
+    x = min(x, baseline.start[0], baseline.end[0])
+    y = min(y, baseline.start[1], baseline.end[1])
+    width, height = maximum_x - x, maximum_y - y
+    scale = 1200 / max(width, height)
+    padding = 40
+    canvas_width, canvas_height = (
+        math.ceil(width * scale) + padding * 2,
+        math.ceil(height * scale) + padding * 2,
+    )
+    mapping = [
+        1 / scale,
+        0,
+        0,
+        1 / scale,
+        x - padding / scale,
+        y - padding / scale,
+    ]
+    state.main_length = MainLength(
+        start=(
+            (baseline.start[0] - x) * scale + padding,
+            (baseline.start[1] - y) * scale + padding,
+        ),
+        end=(
+            (baseline.end[0] - x) * scale + padding,
+            (baseline.end[1] - y) * scale + padding,
+        ),
+    )
+    dimensions = {"width": canvas_width, "height": canvas_height}
+    svg.set(
+        "viewBox",
+        f"{x - padding / scale} {y - padding / scale} {canvas_width / scale} {canvas_height / scale}",
+    )
+    svg.set("width", str(canvas_width))
+    svg.set("height", str(canvas_height))
+    # A silhouette only: never burn the scaling vector into the mask.
+    for element in list(svg):
+        if element.get("id") == "main-length":
+            svg.remove(element)
+    return dimensions, mapping, state.main_length, ET.tostring(svg)
+
+
 def initialize_outline(
     target: dict, saved_svg: Path, state: ReviewState, editable: bool, reference: Path
 ) -> dict:
@@ -63,50 +112,9 @@ def initialize_outline(
             "cutout",
         ):
             target[kind].unlink(missing_ok=True)
-        svg = ET.parse(saved_svg).getroot()
-        x, y, width, height = map(float, svg.get("viewBox").split())
-        baseline = svg_main_length(saved_svg)
-        maximum_x = max(x + width, baseline.start[0], baseline.end[0])
-        maximum_y = max(y + height, baseline.start[1], baseline.end[1])
-        x = min(x, baseline.start[0], baseline.end[0])
-        y = min(y, baseline.start[1], baseline.end[1])
-        width, height = maximum_x - x, maximum_y - y
-        scale = 1200 / max(width, height)
-        padding = 40
-        canvas_width, canvas_height = (
-            math.ceil(width * scale) + padding * 2,
-            math.ceil(height * scale) + padding * 2,
-        )
-        mapping = [
-            1 / scale,
-            0,
-            0,
-            1 / scale,
-            x - padding / scale,
-            y - padding / scale,
-        ]
-        state.main_length = MainLength(
-            start=(
-                (baseline.start[0] - x) * scale + padding,
-                (baseline.start[1] - y) * scale + padding,
-            ),
-            end=(
-                (baseline.end[0] - x) * scale + padding,
-                (baseline.end[1] - y) * scale + padding,
-            ),
-        )
-        raw["svg_canvas"] = {"width": canvas_width, "height": canvas_height}
-        svg.set(
-            "viewBox",
-            f"{x - padding / scale} {y - padding / scale} {canvas_width / scale} {canvas_height / scale}",
-        )
-        svg.set("width", str(canvas_width))
-        svg.set("height", str(canvas_height))
-        # A silhouette only: never burn the scaling vector into the mask.
-        for element in list(svg):
-            if element.get("id") == "main-length":
-                svg.remove(element)
-        atomic_bytes(target["directory"] / "revision-mask.svg", ET.tostring(svg))
+        dimensions, mapping, state.main_length, mask_svg = outline_canvas(saved_svg)
+        raw["svg_canvas"] = dimensions
+        atomic_bytes(target["directory"] / "revision-mask.svg", mask_svg)
     if reference.is_file():
         atomic_bytes(target["directory"] / "revision-photo.png", reference.read_bytes())
     atomic_json(

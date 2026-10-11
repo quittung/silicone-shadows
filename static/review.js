@@ -29,7 +29,9 @@ let hoverPoint = null;
 let activeLength = null;
 let panning = null;
 let suppressPasteUntil = 0;
-let autosaveTimer = null;
+let editSession = null;
+let editorBusy = false;
+let loadGeneration = 0;
 let saveChain = Promise.resolve();
 let hostedMode = false;
 let claimHeartbeat = null;
@@ -66,15 +68,11 @@ function outlineIconButton(label, path) {
   return button;
 }
 
-function outlineApi(path, itemId = current?.id) {
-  return `/api/items/${encodeURIComponent(itemId)}/${path}?variant=${encodeURIComponent(activeVariant)}`;
-}
-
 function renderVariantControls() {
   const controls = $('#variant-controls');
   controls.hidden = !current;
   $('#variant-add').hidden = !!current?.read_only;
-  $('#variant-add').disabled = variantBusy || !variantCollection.sizes.length;
+  $('#variant-add').disabled = variantBusy || editorBusy || remaskBusy || !variantCollection.sizes.length;
   const list = $('#variant-list');
   list.replaceChildren();
   for (const entry of variantCollection.outlines) {
@@ -86,7 +84,7 @@ function renderVariantControls() {
     radio.className = 'variant-radio';
     radio.id = `outline-selection-${outlineNumbers.get(entry.id)}`;
     radio.checked = entry.id === activeVariant;
-    radio.disabled = variantBusy;
+    radio.disabled = variantBusy || editorBusy || remaskBusy;
     radio.setAttribute('aria-label', name);
     radio.addEventListener('change', () => switchVariant(entry.id));
     const title = document.createElement('h3');
@@ -96,7 +94,7 @@ function renderVariantControls() {
       const remove = outlineIconButton(`Delete ${outlineLabel(entry.id)}`,
         'M3 6h18 M9 6V3h6v3 M5 6l1 15h12l1-15 M10 10v7 M14 10v7');
       remove.classList.add('variant-delete');
-      remove.disabled = variantBusy || variantCollection.outlines.length <= 1;
+      remove.disabled = variantBusy || editorBusy || remaskBusy || variantCollection.outlines.length <= 1;
       if (variantCollection.outlines.length <= 1) remove.title = 'Keep at least one outline';
       remove.addEventListener('click', () => {
         if (confirm(`Remove ${outlineLabel(entry.id)} and its editing work?`)) {
@@ -112,7 +110,7 @@ function renderVariantControls() {
       const change = document.createElement('button'); change.textContent = 'Change';
       change.className = 'variant-change';
       change.setAttribute('aria-label', `Change sizes for ${outlineLabel(entry.id)}`);
-      change.disabled = variantBusy || !variantCollection.sizes.length;
+      change.disabled = variantBusy || editorBusy || remaskBusy || !variantCollection.sizes.length;
       change.addEventListener('click', () => openVariantDialog('assign', entry.id));
       sizes.append(document.createTextNode(' '), change);
     }
@@ -164,48 +162,44 @@ async function refreshVariants(itemId) {
   renderVariantControls();
 }
 
-async function saveVariantDraft() {
-  clearTimeout(autosaveTimer);
-  await saveChain;
-  if (state && !current?.read_only && (metadataDirty || editsDirty)) await save('pending');
+function captureCurrentOutline() {
+  if (!editSession || !state) return;
+  state.alpha_threshold = Number($('#threshold').value);
+  editSession.capture(activeVariant, {state, paint:editsCanvas, initialPaint:initialEditsCanvas, strokes, editsDirty});
 }
 
 async function switchVariant(id) {
-  if (variantBusy) return;
+  if (variantBusy || editorBusy || remaskBusy) return;
   variantBusy = true;
   try {
-    await saveVariantDraft();
-    activeVariant = id;
-    await loadItem(current.id);
+    if (editSession) {
+      captureCurrentOutline(); activeVariant = id;
+      await showDraftOutline(); updateEditorUrl();
+    } else { activeVariant = id; await loadItem(current.id); }
   } catch (error) { setStatus(error.message, true); }
   finally {
-    variantBusy = false;
-    renderVariantControls();
+    variantBusy = false; renderVariantControls();
     if ($('#variants-panel').open) $('#variant-list input:checked')?.focus();
   }
 }
 
 async function mutateVariant(change, selectId) {
-  if (variantBusy) return;
-  variantBusy = true;
-  $('#variant-confirm').disabled = true;
+  if (variantBusy || editorBusy || remaskBusy || !editSession) return;
+  variantBusy = true; $('#variant-confirm').disabled = true;
   try {
-    await saveVariantDraft();
-    variantCollection = await api(`/api/items/${encodeURIComponent(current.id)}/variants`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(change)});
+    captureCurrentOutline(); editSession.changeVariant(change);
+    variantCollection = editSession.collection();
     if (change.action === 'remove') outlineNumbers.delete(change.id);
     if (change.move_from != null && selectId != null && outlineNumbers.has(change.move_from)) {
       const number = outlineNumbers.get(change.move_from);
-      outlineNumbers.delete(change.move_from);
-      outlineNumbers.set(selectId, number);
+      outlineNumbers.delete(change.move_from); outlineNumbers.set(selectId, number);
     }
     activeVariant = selectId ?? (variantCollection.outlines.some(entry => entry.id === activeVariant)
       ? activeVariant : variantCollection.outlines[0]?.id) ?? '';
-    $('#variant-dialog').close();
-    await loadItem(current.id);
-  } catch (error) {
-    $('#variant-error').textContent = error.message;
-    setStatus(error.message, true);
-  } finally { variantBusy = false; $('#variant-confirm').disabled = false; renderVariantControls(); }
+    $('#variant-dialog').close(); await showDraftOutline();
+    metadataDirty = true; setStatus('Unsaved changes'); updateEditorUrl();
+  } catch (error) { $('#variant-error').textContent = error.message; setStatus(error.message, true); }
+  finally { variantBusy = false; $('#variant-confirm').disabled = false; renderVariantControls(); }
 }
 
 function openVariantDialog(mode, target = activeVariant) {
@@ -394,42 +388,7 @@ function visibleItems() {
     .filter(Boolean);
 }
 
-function prefetchPriority(visible = visibleItems(), currentId = current?.id) {
-  if (!currentId) return [];
-  const eligible = item =>
-    !item.independent && item.workflow_status === 'never_worked' && !item.claimed_by;
-  const currentItem = items.find(item => item.id === currentId);
-  if (!currentItem || !eligible(currentItem)) return [];
 
-  const priority = [currentItem];
-  const candidates = visible.filter(eligible);
-  const index = candidates.findIndex(item => item.id === currentId);
-  if (index >= 0 && candidates.length > 1) {
-    for (const offset of [1, -1, 2, -2]) {
-      const candidate = candidates[
-        (index + offset + candidates.length) % candidates.length
-      ];
-      if (!priority.some(item => item.id === candidate.id)) {
-        priority.push(candidate);
-      }
-    }
-  }
-  return priority.slice(0, 5);
-}
-
-async function syncPrefetch(visible = visibleItems(), currentId = current?.id) {
-  try {
-    await api('/api/prefetch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        item_ids: prefetchPriority(visible, currentId).map(item => item.id),
-      }),
-    });
-  } catch (error) {
-    setStatus(`Could not update prefetch queue: ${error.message}`, true);
-  }
-}
 
 function matchesCatalogFilters(item) {
   const name = $('#name-filter').value.trim().toLowerCase();
@@ -461,7 +420,7 @@ function startClaimHeartbeat(itemId) {
   claimHeartbeat = setInterval(async () => {
     if (!current || current.id !== itemId || current.read_only) return;
     try {
-      await api(`/api/items/${encodeURIComponent(itemId)}/claim`, {method:'POST'});
+      await api(`/api/editor/items/${encodeURIComponent(itemId)}/claim`, {method:'POST'});
       if ($('#status').textContent === 'Connection interrupted; claim check will retry') {
         setStatus('Claim active');
       }
@@ -471,13 +430,14 @@ function startClaimHeartbeat(itemId) {
         return;
       }
       clearInterval(claimHeartbeat);
+      captureCurrentOutline();
       current.read_only = true;
-      state = null;
       setEditorDisabled(true);
       setSidebarMode('read-only');
       $('#read-only-summary').textContent = 'Editing stopped';
-      $('#read-only-info').textContent = error.message;
-      $('#rereview').hidden = true;
+      $('#read-only-info').textContent = `${error.message} Your working copy is still in this browser.`;
+      $('#rereview').textContent = 'Resume editing';
+      $('#rereview').hidden = false;
       $('#edit-metadata').hidden = true;
       setStatus(error.message, true);
       render();
@@ -487,12 +447,12 @@ function startClaimHeartbeat(itemId) {
 
 async function releaseCurrentClaim() {
   clearInterval(claimHeartbeat);
-  if (!hostedMode || !current || current.read_only) return;
-  const itemId = current.id;
-  metadataDirty = editsDirty = false;
-  try {
-    await fetch(`/api/items/${encodeURIComponent(itemId)}/release`, {method:'POST'});
-  } catch (_) {}
+  const itemId = editSession?.document.id;
+  editSession = null; metadataDirty = editsDirty = false;
+  if (hostedMode && itemId) {
+    try { await fetch(`/api/editor/items/${encodeURIComponent(itemId)}/release`, {method:'POST'}); }
+    catch (_) {}
+  }
 }
 
 function showEmptyState(title, message) {
@@ -537,7 +497,7 @@ function showClaimRecovery(error, retry) {
     const button = $('#claim-release');
     button.disabled = true;
     try {
-      const response = await fetch(`/api/items/${encodeURIComponent(error.currentItemId)}/release`, {method:'POST'});
+      const response = await fetch(`/api/editor/items/${encodeURIComponent(error.currentItemId)}/release`, {method:'POST'});
       if (!response.ok) throw await responseError(response);
       $('#claim-recovery').hidden = true;
       await retry();
@@ -589,6 +549,7 @@ async function showPublishedItem(item) {
     ? 'This submission is waiting for moderation. Reviewers can edit a working copy.'
     : 'Edit a working copy. The saved result stays intact until you explicitly save the revision.';
   $('#reset-catalog').hidden = hostedMode || !item.has_alternative;
+  $('#rereview').textContent = 'Edit';
   $('#rereview').hidden = !item.can_edit;
   $('#cancel-revision').hidden = true;
   $('#revision-note').hidden = true;
@@ -616,9 +577,7 @@ async function showPublishedItem(item) {
 }
 
 async function applyFilters(urlMode = 'push', preferredItemId, requirePreferred = false) {
-  if (!hostedMode && current && (metadataDirty || editsDirty)) {
-    try { await save('pending'); } catch (_) { return; }
-  }
+  if (editorBusy || remaskBusy || variantBusy) return;
   rebuildNavigation();
   const visible = visibleItems();
   refreshProgressText();
@@ -627,13 +586,11 @@ async function applyFilters(urlMode = 'push', preferredItemId, requirePreferred 
     : visible.find(item => item.id === preferredItemId);
   if (requirePreferred && !preferred) {
     await releaseCurrentClaim();
-    await syncPrefetch([], null);
     showEmptyState('Product not found', 'The linked product no longer exists.');
     return updateEditorUrl(urlMode, preferredItemId);
   }
   if (!visible.length) {
     await releaseCurrentClaim();
-    await syncPrefetch([], null);
     showEmptyState();
     return updateEditorUrl(urlMode, null);
   }
@@ -643,7 +600,6 @@ async function applyFilters(urlMode = 'push', preferredItemId, requirePreferred 
     await loadItem(target.id, urlMode);
   } else {
     updateEditorUrl(urlMode, current.id);
-    await syncPrefetch(visible, current.id);
   }
 }
 
@@ -654,278 +610,168 @@ function configureOffscreen(width, height) {
   }
 }
 
-async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = false) {
-  clearTimeout(autosaveTimer);
-  if (hostedMode && current && current.id !== itemId) await releaseCurrentClaim();
-  $('#empty-state').classList.remove('visible');
-  const listed = items.find(item => item.id === itemId);
-  if (current?.id !== itemId) {
-    const linked = new URLSearchParams(location.search);
-    activeVariant = linked.get('item') === itemId ? linked.get('variant') || '' : '';
-  }
-  savedOutlineMode = false;
-  $('#cancel-revision').hidden = !listed?.revision;
-  $('#download-current').hidden = !!listed?.revision;
-  $('#revision-note').hidden = !listed?.revision;
-  $('#save-label').textContent = listed?.revision ? 'Save' : hostedMode ? 'Submit' : 'Save';
-  $('#save-next').setAttribute('aria-label', listed?.revision ? 'Save revision' : hostedMode ? 'Submit' : 'Save');
-  $('#save-next').title = `${$('#save-next').getAttribute('aria-label')} (Space)`;
-  $('#variant-blank').hidden = true;
-  $('#use-saved-photo').hidden = true;
-  await refreshVariants(itemId);
-  if (listed?.read_only) {
-    await syncPrefetch([], null);
-    await showPublishedItem(listed);
-    updateEditorUrl(urlMode, itemId);
-    return;
-  }
+async function showDraftOutline() {
+  const session = editSession, variant = activeVariant;
+  const entry = session.outline(variant);
+  const images = await session.images(variant);
+  if (editSession !== session || activeVariant !== variant) return;
+  state = structuredClone(entry.state); sourceImage = images?.source || null; rembgImage = images?.mask || null;
+  savedOutlineMode = entry.mode === 'svg';
+  strokes = structuredClone(entry.strokes || []); activeStroke = activeCrop = activeLength = null;
+  editsDirty = false;
+  setItemTitle(current); setSidebarMode('edit'); setEditorDisabled(!images);
   $('#published-state').classList.remove('visible');
-  $('#source-unavailable').classList.remove('visible');
-  setEditorDisabled(false);
-  setSidebarMode('edit');
-  $('#rereview').hidden = true;
-  $('#edit-metadata').hidden = true;
-  $('#revision-metadata').hidden = !listed?.independent || !listed?.revision;
-  $('#load-insecure').hidden = true;
-  $('#load-insecure').disabled = allowInvalidCertificate;
-  $('#load-insecure').textContent = allowInvalidCertificate ? 'Loading image…' : 'Load image anyway';
-  $('#view-hint').textContent = 'Wheel zoom · middle drag pans';
-  $('#loading').textContent = 'Preparing mask…';
-  $('#loading').classList.add('visible');
-  setStatus('');
-  try {
-    const insecure = allowInvalidCertificate ? '&allow_invalid_certificate=true' : '';
-    let details = await api(`${outlineApi('prepare', itemId)}${insecure}`, { method: 'POST' });
-    if (details.blank) {
-      current = listed; state = sourceImage = rembgImage = null;
-      editsDirty = metadataDirty = false;
-      strokes = []; activeStroke = activeCrop = activeLength = null;
-      updateLineInfo();
-      $$('.rating button').forEach(button => button.classList.remove('active'));
-      setItemTitle(current); setEditorDisabled(true); renderVariantControls();
-      $('#save-next').disabled = $('#download-current').disabled = true;
-      $('#reset-catalog').hidden = true;
-      $('#source-info').textContent = 'Paste or drop a photo onto the canvas.';
-      $('#variant-blank').hidden = false;
-      $('#view-hint').textContent = 'Paste or drop an image to begin';
-      if (hostedMode) startClaimHeartbeat(itemId);
-      render(); updateEditorUrl(urlMode, itemId);
-      await syncPrefetch(visibleItems(), itemId);
-      return;
-    }
-    if (details.source_unavailable) {
-      current = listed;
-      if (hostedMode) {
-        current.last_opened_at = Date.now() / 1000;
-        startClaimHeartbeat(itemId);
-      }
-      state = sourceImage = rembgImage = null;
-      setItemTitle(current);
-      setEditorDisabled(true);
-      $('#source-info').textContent = 'Drop or paste an image onto the canvas.';
-      $('#source-unavailable-message').textContent = details.certificate_error
-        ? "The source site's certificate couldn't be verified."
-        : 'The image could not be retrieved from the source site.';
-      $('#load-insecure').hidden = !details.certificate_error;
-      $('#source-unavailable').classList.add('visible');
-      $('#reset-catalog').hidden = true;
-      $('#view-hint').textContent = 'Paste or drop an image to continue';
-      setStatus('');
-      render();
-      await syncPrefetch([], itemId);
-      updateEditorUrl(urlMode, itemId);
-      return;
-    }
-    if (details.outline_mask) {
-      const image = await loadImage(details.mask_url);
-      const restored = offscreen();
-      restored.width = details.width; restored.height = details.height;
-      restored.getContext('2d').drawImage(image, 0, 0, details.width, details.height);
-      const form = new FormData();
-      form.append('mask', await canvasBlob(restored), 'mask.png');
-      const response = await fetch(outlineApi('revision-mask', itemId), {method:'POST', body:form});
-      if (!response.ok) throw await responseError(response);
-      details = await api(outlineApi('prepare', itemId), {method:'POST'});
-    }
-    savedOutlineMode = !!details.saved_outline;
-    const images = [loadImage(details.source_url), loadImage(details.rembg_url)];
-    if (details.edits_url) images.push(loadImage(details.edits_url));
-    const loaded = await Promise.all(images);
-
-    current = items.find(item => item.id === itemId);
-    if (hostedMode) current.last_opened_at = Date.now() / 1000;
-    state = details.state;
-    sourceImage = loaded[0];
-    rembgImage = loaded[1];
-    configureOffscreen(details.width, details.height);
+  $('#source-unavailable').classList.toggle('visible', !!session.document.source_unavailable && !images);
+  $('#source-unavailable-message').textContent = session.document.certificate_error
+    ? "The source site's certificate couldn't be verified." : 'The image could not be retrieved from the source site.';
+  $('#load-insecure').hidden = !session.document.certificate_error || !!images;
+  $('#variant-blank').hidden = !!images || !!session.document.source_unavailable;
+  $('#cancel-revision').hidden = false; $('#cancel-revision').disabled = false;
+  $('#download-current').hidden = false;
+  $('#save-next').disabled = false; $('#download-current').disabled = false;
+  $('#revision-note').hidden = !current.revision;
+  $('#revision-metadata').hidden = !current.independent;
+  $('#rereview').hidden = true; $('#edit-metadata').hidden = true;
+  $('#save-label').textContent = hostedMode ? 'Submit' : 'Save';
+  $('#save-next').setAttribute('aria-label', hostedMode ? 'Submit product' : 'Save product');
+  $('#save-next').title = `${$('#save-next').getAttribute('aria-label')} (Space)`;
+  $('#use-saved-photo').hidden = !entry.reference_url;
+  $('#use-saved-photo').dataset.url = entry.reference_url || '';
+  $('#reset-catalog').hidden = entry.source !== 'alternative' || current.independent;
+  $('#threshold').value = state.alpha_threshold || 128;
+  $('#threshold-value').textContent = $('#threshold').value;
+  $('#threshold').disabled = savedOutlineMode || !images;
+  $('[data-tool=remask]').disabled = savedOutlineMode || !images;
+  $('#source-info').textContent = savedOutlineMode
+    ? 'Editing saved outline. Paste or drop a photo to use the image tools.'
+    : entry.source === 'alternative' && images ? 'Alternative image active. Changes stay here until Save.'
+    : 'Paste or drop an image onto the canvas. Changes stay here until Save.';
+  $('#view-hint').textContent = images ? 'Wheel zoom · middle drag pans' : 'Paste or drop an image to begin';
+  $$('.rating button').forEach(button => { button.disabled = false; button.classList.toggle('active', button.dataset.rating === state.rating); });
+  if (images) {
+    // Canvas sources from local processing use the same dimensions as image elements.
+    if (!sourceImage.naturalWidth) { sourceImage.naturalWidth = sourceImage.width; sourceImage.naturalHeight = sourceImage.height; }
+    configureOffscreen(entry.width, entry.height);
     rembgCanvas.getContext('2d').drawImage(rembgImage, 0, 0);
-    const editsCtx = editsCanvas.getContext('2d');
-    editsCtx.clearRect(0, 0, details.width, details.height);
-    if (loaded[2]) editsCtx.drawImage(loaded[2], 0, 0);
-    initialEditsCanvas.getContext('2d').drawImage(editsCanvas, 0, 0);
-    strokes = [];
-    activeStroke = null;
-    activeCrop = null;
-    remaskBusy = false;
-    activeLength = null;
-    editsDirty = false;
-    metadataDirty = false;
-    if (hostedMode) startClaimHeartbeat(itemId);
-
-    setItemTitle(current);
-    renderVariantControls();
-    setTool(tool);
-    $('#use-saved-photo').hidden = !details.reference_url;
-    $('#use-saved-photo').dataset.url = details.reference_url || '';
-    $('#threshold').disabled = savedOutlineMode;
-    $('[data-tool=remask]').disabled = savedOutlineMode;
-    $('#source-info').textContent = savedOutlineMode
-      ? 'Editing saved outline without a reference photo. Paste or drop a photo to use the normal image tools.'
-      : details.has_alternative
-      ? 'Alternative image active. Drop or paste another to replace it.'
-      : 'Drop or paste an image onto the canvas.';
-    $('#reset-catalog').hidden = !details.has_alternative;
-    $('#threshold').value = state.alpha_threshold;
-    $('#threshold-value').textContent = state.alpha_threshold;
-    $$('.rating button').forEach(button =>
-      button.classList.toggle('active', button.dataset.rating === state.rating));
-    updateLineInfo();
-    recomputeMask();
-    fitView();
-    setStatus(hostedMode ? 'Claimed for up to 15 minutes' :
-      state.status === 'done' ? 'Completed' : 'Draft autosaves locally');
-    await syncPrefetch(visibleItems(), itemId);
-    updateEditorUrl(urlMode, itemId);
-  } catch (error) {
-    if (hostedMode) {
-      current = state = sourceImage = rembgImage = null;
-      setEditorDisabled(true);
-      setSidebarMode('empty');
-      render();
-    }
-    if (error.currentItemId) {
-      showClaimRecovery(error, () => loadItem(itemId, urlMode, allowInvalidCertificate));
-    }
-    setStatus(error.message, true);
-  } finally {
-    $('#load-insecure').disabled = false;
-    $('#load-insecure').textContent = 'Load image anyway';
-    $('#loading').classList.remove('visible');
-  }
+    if (entry.paint) editsCanvas.getContext('2d').drawImage(entry.paint, 0, 0);
+    if (entry.initialPaint) initialEditsCanvas.getContext('2d').drawImage(entry.initialPaint, 0, 0);
+    recomputeMask(); fitView(); setTool(tool);
+  } else render();
+  variantCollection = session.collection(); renderVariantControls(); updateLineInfo();
 }
 
-async function uploadAlternative(file) {
-  if (!current || !file) return;
-  if (current.read_only) {
-    await rereview();
-    if (!current || current.read_only) return;
-  }
-  if ((state?.rating || state?.main_length || editsDirty) &&
-      !confirm('Replace this source image and clear its current mask edits, rating, and length line?')) return;
-  clearTimeout(autosaveTimer);
-  await saveChain;
-  const itemId = current.id;
-  const form = new FormData();
-  form.append('image', file, file.name || 'clipboard-image.png');
-  $('#loading').textContent = 'Masking alternative image…';
-  $('#loading').classList.add('visible');
-  setStatus('Uploading alternative image…');
+async function loadItem(itemId, urlMode = 'replace', allowInvalidCertificate = false, edit = false) {
+  if (editorBusy) return;
+  editorBusy = true;
   try {
-    await api(outlineApi('alternative', itemId), { method: 'POST', body: form });
-    await refreshItems();
-    await loadItem(itemId);
-    setStatus('Alternative image active');
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    $('#loading').classList.remove('visible');
-  }
+    const generation = ++loadGeneration;
+    if (editSession) await releaseCurrentClaim();
+    const listed = items.find(item => item.id === itemId);
+    if (!listed) return showEmptyState();
+    if (current?.id !== itemId) {
+      const linked = new URLSearchParams(location.search);
+      activeVariant = linked.get('item') === itemId ? linked.get('variant') || '' : '';
+    }
+    $('#empty-state').classList.remove('visible');
+    if (listed.read_only && !edit) {
+      await refreshVariants(itemId); await showPublishedItem(listed); updateEditorUrl(urlMode, itemId); return;
+    }
+    $('#loading').textContent = 'Opening product…'; $('#loading').classList.add('visible');
+    try {
+      const query = allowInvalidCertificate ? '?allow_invalid_certificate=true' : '';
+      const descriptor = await api(`/api/editor/items/${encodeURIComponent(itemId)}/open${query}`, {method:'POST'});
+      if (generation !== loadGeneration) return;
+      editSession = new EditorSession(descriptor);
+      current = {...listed, read_only:false, revision:descriptor.revision, metadata:descriptor.metadata || listed.metadata};
+      if (outlineNumberItem !== itemId) { outlineNumberItem = itemId; outlineNumbers.clear(); nextOutlineNumber = 1; }
+      if (!descriptor.outlines.some(entry => entry.id === activeVariant)) activeVariant = descriptor.outlines[0].id;
+      metadataDirty = editsDirty = false;
+      await showDraftOutline();
+      if (hostedMode) startClaimHeartbeat(itemId);
+      setStatus(hostedMode ? 'Claimed for up to 15 minutes · Changes stay in this browser until Save' : 'Changes stay in this browser until Save');
+      updateEditorUrl(urlMode, itemId);
+    } catch (error) {
+      editSession = null; showEmptyState('Could not open product', error.message);
+      if (error.currentItemId) showClaimRecovery(error, () => loadItem(itemId, urlMode, allowInvalidCertificate, edit));
+      setStatus(error.message, true);
+    } finally { $('#loading').classList.remove('visible'); }
+  } finally { editorBusy = false; }
+}
+
+async function uploadAlternative(file, source = 'alternative', ask = true) {
+  if (!current || !file || editorBusy || remaskBusy) return;
+  if (current.read_only) { await rereview(); if (!editSession) return; }
+  if (ask && (state?.rating || state?.main_length || editsDirty) &&
+      !confirm('Replace this source image and clear its current mask edits, rating, and length line?')) return;
+  captureCurrentOutline();
+  const session = editSession, variant = activeVariant;
+  editorBusy = true; setEditorDisabled(true);
+  $('#loading').textContent = 'Processing image…'; $('#loading').classList.add('visible');
+  try {
+    const replacement = await session.replacement(file, source);
+    if (editSession !== session || activeVariant !== variant) return;
+    Object.assign(session.outline(variant), replacement);
+    await showDraftOutline(); metadataDirty = true;
+    setStatus('Image ready · Unsaved changes');
+  } catch (error) { setStatus(error.message, true); }
+  finally { editorBusy = false; $('#loading').classList.remove('visible'); if (editSession === session) await showDraftOutline(); }
 }
 
 async function resetToCatalog() {
-  if ($('#reset-catalog').hidden) return;
+  if ($('#reset-catalog').hidden || editorBusy) return;
   if (!confirm('Reset to the catalog image and clear the current mask edits, rating, and length line?')) return;
-  clearTimeout(autosaveTimer);
-  await saveChain;
-  const itemId = current.id;
-  $('#loading').textContent = 'Restoring catalog image…';
-  $('#loading').classList.add('visible');
-  setStatus('Restoring catalog image…');
+  const session = editSession, variant = activeVariant;
   try {
-    await api(outlineApi('alternative', itemId), { method: 'DELETE' });
-    await refreshItems();
-    await loadItem(itemId);
-    setStatus('Catalog image restored');
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    $('#loading').classList.remove('visible');
-  }
+    const url = `/api/editor/items/${encodeURIComponent(current.id)}/asset/catalog?baseline=${session.document.baseline}`;
+    const response = await fetch(url);
+    if (!response.ok) throw await responseError(response);
+    const blob = await response.blob();
+    if (editSession === session && activeVariant === variant) await uploadAlternative(blob, 'catalog', false);
+  } catch (error) { setStatus(error.message, true); }
 }
 
 async function rereview() {
-  if (!current?.can_edit) return;
-  const itemId = current.edit_item_id || current.id;
-  const selectedVariant = activeVariant;
-  $('#loading').textContent = 'Opening saved result…';
-  $('#loading').classList.add('visible');
-  try {
-    await api(`/api/items/${encodeURIComponent(itemId)}/rereview`, { method: 'POST' });
-    await refreshItems();
-    current = items.find(item => item.id === itemId);
-    activeVariant = selectedVariant;
-    await loadItem(itemId);
-  } catch (error) {
-    if (error.currentItemId) {
-      showClaimRecovery(error, async () => {
-        activeVariant = selectedVariant;
-        await loadItem(itemId);
-        await rereview();
-      });
-    }
-    setStatus(error.message, true);
-  } finally {
-    $('#loading').classList.remove('visible');
+  if (!current?.can_edit || editorBusy || remaskBusy) return;
+  if (editSession) {
+    const session = editSession;
+    editorBusy = true;
+    try {
+      const descriptor = await api(`/api/editor/items/${encodeURIComponent(current.id)}/open`, {method:'POST'});
+      if (descriptor.baseline !== session.document.baseline) {
+        await fetch(`/api/editor/items/${encodeURIComponent(current.id)}/release`, {method:'POST'});
+        throw new Error('The saved product changed. Reload to open the new result. Your working copy remains here.');
+      }
+      current.read_only = false;
+      await showDraftOutline(); startClaimHeartbeat(current.id);
+      setStatus('Claim restored · Your working copy was retained');
+    } catch (error) { setStatus(error.message, true); }
+    finally { editorBusy = false; }
+    return;
   }
+  await loadItem(current.edit_item_id || current.id, 'replace', false, true);
 }
 
 async function cancelRevision() {
-  if (!current?.revision || !confirm('Discard this working copy and return to the saved result?')) return;
-  clearTimeout(autosaveTimer);
-  await saveChain;
+  if (!editSession || editorBusy || !confirm('Discard this working copy and return to the saved result?')) return;
   const itemId = current.id;
-  const response = await fetch(`/api/items/${encodeURIComponent(itemId)}/cancel-revision`, {method:'POST'});
-  if (!response.ok) throw await responseError(response);
-  await refreshItems();
-  await loadItem(itemId);
-  setStatus('Revision cancelled; saved result retained');
+  await releaseCurrentClaim();
+  if (items.find(item => item.id === itemId)?.read_only) await loadItem(itemId);
+  else { showEmptyState('Editing cancelled', 'Select a product to start another working copy.'); updateEditorUrl('replace', null); }
+  setStatus('Working copy discarded; saved result retained');
 }
 
 async function editIndependentMetadata() {
-  if (!current?.independent) return;
-  if (!current.revision) {
-    await rereview();
-    if (!current?.revision) return;
-  }
-  await saveVariantDraft();
-  const metadata = await MetadataDialog.open(
-    current.metadata,
-    'Apply to working copy',
-  );
-  if (!metadata) return;
-  try {
-    const itemId = current.id;
-    await api(`/api/items/${encodeURIComponent(itemId)}/revision-metadata`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(metadata),
-    });
-    await refreshItems();
-    await loadItem(itemId);
-    setStatus('Metadata updated in working copy; Save revision applies it');
-  } catch (error) {
-    setStatus(error.message, true);
-  }
+  if (!current?.independent || editorBusy) return;
+  if (!editSession) { await rereview(); if (!editSession) return; }
+  captureCurrentOutline();
+  const session = editSession;
+  const metadata = await MetadataDialog.open(session.metadata, 'Apply to working copy');
+  if (!metadata || editSession !== session) return;
+  const sizes = new Set(metadata.sizes.map(size => size.label));
+  if (session.outlines.some(outline => outline.sizes.some(size => !sizes.has(size)))) return setStatus('Reassign outline sizes before removing them from the product.', true);
+  session.metadata = metadata; current.metadata = metadata; metadataDirty = true;
+  variantCollection = session.collection(); renderVariantControls();
+  setStatus('Metadata updated locally · Unsaved changes');
 }
 
 function fitView() {
@@ -1229,9 +1075,8 @@ function markDirty(paint = false) {
   state.status = 'pending';
   metadataDirty = true;
   if (paint) editsDirty = true;
-  if (current) current.status = 'pending';
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => save('pending'), 700);
+
+  setStatus('Unsaved changes');
   refreshProgressText();
 }
 
@@ -1249,15 +1094,19 @@ async function remaskCrop(box) {
   remaskBusy = true;
   setStatus('Remasking crop…');
   const form = new FormData();
-  for (const [name, value] of Object.entries(box)) form.append(name, value);
+  const session = editSession, variant = activeVariant;
+  const crop = offscreen(); crop.width = box.right - box.left; crop.height = box.bottom - box.top;
+  const context = crop.getContext('2d'); context.fillStyle = '#ecece8'; context.fillRect(0, 0, crop.width, crop.height);
+  context.drawImage(sourceImage, box.left, box.top, crop.width, crop.height, 0, 0, crop.width, crop.height);
+  form.append('image', await canvasBlob(crop), 'crop.png');
   try {
     const response = await fetch(
-      outlineApi('remask-crop', itemId),
+      '/api/editor/process',
       {method: 'POST', body: form},
     );
     if (!response.ok) throw await responseError(response);
     const prediction = await createImageBitmap(await response.blob());
-    if (current?.id !== itemId) return prediction.close();
+    if (current?.id !== itemId || editSession !== session || activeVariant !== variant) return prediction.close();
     const width = box.right - box.left;
     const height = box.bottom - box.top;
     if (prediction.width !== width || prediction.height !== height) {
@@ -1290,45 +1139,30 @@ async function remaskCrop(box) {
   }
 }
 
-async function performSave(status) {
-  if (!current || !state) return;
-  const itemId = current.id;
-  state.alpha_threshold = Number($('#threshold').value);
-  state.status = status;
-  const form = new FormData();
-  form.append('state_json', JSON.stringify(state));
-  if (editsDirty) form.append('edits', await canvasBlob(editsCanvas), 'edits.png');
-  const result = await api(outlineApi('save', itemId), { method: 'POST', body: form });
-  editsDirty = false;
-  metadataDirty = false;
-  const listed = items.find(item => item.id === itemId);
-  if (listed) Object.assign(listed, result);
-  refreshProgressText();
-  setStatus(status === 'done'
-    ? (hostedMode ? 'Submitted for review' : 'Saved and exported')
-    : 'Draft saved');
-  if (status === 'done') window.refreshModerationCount?.();
-  return result;
+async function performSave() {
+  if (!current || !editSession || editorBusy || remaskBusy) return;
+  const itemId = current.id, session = editSession;
+  captureCurrentOutline(); editorBusy = true; setEditorDisabled(true);
+  try {
+    const form = await session.body();
+    const result = await api(`/api/editor/items/${encodeURIComponent(itemId)}/commit`, {method:'POST', body:form});
+    Object.assign(items.find(item => item.id === itemId), result);
+    editsDirty = metadataDirty = false; editSession = null;
+    clearInterval(claimHeartbeat); refreshProgressText();
+    setStatus(hostedMode ? 'Submitted for review' : 'Saved and exported');
+    window.refreshModerationCount?.(); return result;
+  } finally { editorBusy = false; if (editSession === session) await showDraftOutline(); }
 }
 
-function save(status) {
-  clearTimeout(autosaveTimer);
-  const operation = saveChain.then(
-    () => performSave(status),
-    () => performSave(status),
-  );
+function save() {
+  const operation = saveChain.then(() => performSave());
   saveChain = operation.catch(() => {});
-  return operation.catch(error => {
-    setStatus(error.message, true);
-    throw error;
-  });
+  return operation.catch(error => { setStatus(error.message, true); throw error; });
 }
 
 async function navigate(direction) {
   if (!current) return;
-  if (current && !current.read_only && (metadataDirty || editsDirty)) {
-    try { await save('pending'); } catch (_) { return; }
-  }
+  if (editorBusy || remaskBusy || variantBusy) return;
   const visible = visibleItems();
   if (!visible.length) return;
   let index = visible.findIndex(item => item.id === current.id);
@@ -1338,6 +1172,7 @@ async function navigate(direction) {
 }
 
 async function saveAndNext() {
+  if (editorBusy || remaskBusy || variantBusy) return;
   const revising = current?.revision;
   const itemId = current?.id;
   if (!state?.rating) return setStatus('Choose a rating first', true);
@@ -1347,9 +1182,8 @@ async function saveAndNext() {
   const orderedIds = navigationIds || items.map(item => item.id);
   const oldIndex = orderedIds.indexOf(current.id);
   try {
-    await save('done');
+    await save();
     clearInterval(claimHeartbeat);
-    await refreshItems();
     if (revising) {
       await loadItem(itemId);
       return setStatus(hostedMode ? 'Revision saved for moderation' : 'Revision saved');
@@ -1357,7 +1191,6 @@ async function saveAndNext() {
   } catch (_) { return; }
   const candidates = visibleItems();
   if (!candidates.length) {
-    await syncPrefetch([], null);
     showEmptyState();
     updateEditorUrl('push', null);
     return setStatus(hostedMode ? 'Submitted for review' : 'All matching products reviewed');
@@ -1371,37 +1204,18 @@ async function saveAndNext() {
 }
 
 async function downloadCurrent() {
-  if (!current || !state) return;
-  if (!state.rating) return setStatus('Choose a rating first', true);
-  if (state.rating !== 'unusable' && !state.main_length) {
-    return setStatus('Usable items require a base-to-tip line', true);
-  }
-  const button = $('#download-current');
-  button.disabled = true;
-  state.alpha_threshold = Number($('#threshold').value);
-  state.status = 'done';
-  const form = new FormData();
-  form.append('state_json', JSON.stringify(state));
-  form.append('download_only', 'true');
-  if (editsDirty) form.append('edits', await canvasBlob(editsCanvas), 'edits.png');
+  if (!editSession || editorBusy || remaskBusy) return;
+  captureCurrentOutline(); const itemId = current.id;
+  editorBusy = true; $('#download-current').disabled = true;
   try {
-    const response = await fetch(
-      outlineApi('save'),
-      {method: 'POST', body: form},
-    );
+    const form = await editSession.body();
+    const response = await fetch(`/api/editor/items/${encodeURIComponent(itemId)}/commit?download_only=true`, {method:'POST', body:form});
     if (!response.ok) throw await responseError(response);
     const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${current.id}.zip`;
-    link.click();
-    URL.revokeObjectURL(url);
-    setStatus('Archive downloaded; the product remains claimed and can still be submitted.');
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    button.disabled = false;
-  }
+    const link = document.createElement('a'); link.href = url; link.download = `${itemId}.zip`; link.click();
+    URL.revokeObjectURL(url); setStatus('Archive downloaded; changes remain local until Save.');
+  } catch (error) { setStatus(error.message, true); }
+  finally { editorBusy = false; $('#download-current').disabled = false; }
 }
 
 function updateLineInfo() {
@@ -1427,7 +1241,7 @@ canvas.addEventListener('pointerdown', event => {
     event.preventDefault();
     suppressPasteUntil = performance.now() + 1000;
   }
-  if (!sourceImage) return;
+  if (editorBusy || remaskBusy || !sourceImage) return;
   canvas.setPointerCapture(event.pointerId);
   if (current?.read_only || event.button === 1) {
     panning = { x: event.clientX, y: event.clientY, ox: view.x, oy: view.y };
@@ -1577,6 +1391,7 @@ $$('.view').forEach(button => button.addEventListener('click', () => {
   render();
 }));
 $$('.rating button').forEach(button => button.addEventListener('click', () => {
+  if (!state || current?.read_only || editorBusy) return;
   state.rating = button.dataset.rating;
   $$('.rating button').forEach(item => item.classList.toggle('active', item === button));
   markDirty();
@@ -1623,7 +1438,7 @@ $('#open-product').addEventListener('click', event => {
 });
 $('#load-insecure').addEventListener('click', async () => {
   if (!current) return;
-  await loadItem(current.id, 'none', true);
+  await loadItem(current.id, 'none', true, true);
 });
 $('#reset-catalog').addEventListener('click', resetToCatalog);
 $('#rereview').addEventListener('click', rereview);
@@ -1709,10 +1524,9 @@ $('#show-all').addEventListener('click', () => {
 window.beforeAppLogout = releaseCurrentClaim;
 window.beforeCatalogUpdate = async () => {
   if (remaskBusy || activeStroke || activeLength || activeCrop ||
-      (hostedMode && current && !current.read_only)) {
+      editSession || editorBusy) {
     throw new Error('Finish your current review before updating the catalog.');
   }
-  if (current && !current.read_only && (metadataDirty || editsDirty)) await save('pending');
   await saveChain;
 };
 
@@ -1774,9 +1588,12 @@ window.addEventListener('popstate', () => {
     }
   }).catch(error => setStatus(error.message, true));
 });
+window.addEventListener('beforeunload', event => {
+  if (editSession && (metadataDirty || editsDirty)) { event.preventDefault(); event.returnValue = ''; }
+});
 window.addEventListener('pagehide', () => {
   if (hostedMode && current && !current.read_only) {
-    fetch(`/api/items/${encodeURIComponent(current.id)}/release`, {
+    fetch(`/api/editor/items/${encodeURIComponent(current.id)}/release`, {
       method:'POST', keepalive:true,
     });
   }
@@ -1791,6 +1608,7 @@ try {
   }
 } catch (_) {}
 
+setEditorDisabled(true);
 (async () => {
   try {
     const initialUrlState = parseEditorUrl(location.search);

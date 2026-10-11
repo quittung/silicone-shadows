@@ -10,7 +10,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .catalog_updates import CatalogUpdates
 from .hosted import HostedStore
-from .routes import catalog_updates, moderation, pages, public, reviews
+from .routes import catalog_updates, moderation, pages, public, reviews, editor
 from .workspace import Workspace
 from . import variants
 
@@ -74,6 +74,7 @@ def create_app(
     pages.register(app, workspace, secure_cookies)
     public.register(app, workspace)
     reviews.register(app, workspace)
+    editor.register(app, workspace)
     variants.register(app, workspace)
     moderation.register(app, workspace)
     catalog_updates.register(app, updates)
