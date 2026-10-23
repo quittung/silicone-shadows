@@ -13,14 +13,20 @@ from admin import release_dataset
 class ReleaseDatasetTest(unittest.TestCase):
     def test_builds_and_verifies_data_only_archive(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch.object(
-                release_dataset, "latest_release_snapshot", return_value=("v0", ({}, {}))
+            with (
+                patch.object(
+                    release_dataset,
+                    "latest_release_contents",
+                    return_value=("v0", [], {"url": "https://example.test/catalog.json"}),
+                ),
+                patch("admin.dataset_changelog.download_catalog", return_value=b"[]"),
             ):
                 archive, notes = release_dataset.build("v0.0.0", Path(directory))
             digest = hashlib.sha256(archive.read_bytes()).hexdigest()
             with zipfile.ZipFile(archive) as bundle:
                 names = bundle.namelist()
                 manifest = json.loads(bundle.read("manifest.json"))
+                history = bundle.read("CHANGELOG.md").decode("utf-8")
 
             self.assertEqual(manifest["dataset_version"], "v0.0.0")
             self.assertEqual(manifest["license"], "CC0-1.0")
@@ -38,13 +44,19 @@ class ReleaseDatasetTest(unittest.TestCase):
             self.assertIn("Dataset dedication: CC0-1.0", notes.read_text())
             self.assertIn("dataset/LICENSE", names)
             self.assertIn("dataset/NOTICE.md", names)
+            self.assertIn(
+                f"{manifest['records']['total']} products added, 0 updated, and none removed",
+                history,
+            )
+            self.assertIn("CHANGELOG.md", notes.read_text())
             self.assertEqual(
                 manifest["records"]["total"],
                 sum(name.endswith("/metadata.json") for name in names),
             )
             self.assertTrue(
                 all(
-                    name == "manifest.json" or name.startswith("dataset/")
+                    name in {"manifest.json", "CHANGELOG.md"}
+                    or name.startswith("dataset/")
                     for name in names
                 )
             )
@@ -60,6 +72,22 @@ class ReleaseDatasetTest(unittest.TestCase):
     def test_rejects_unsafe_release_name(self):
         with self.assertRaises(ValueError):
             release_dataset.build("../latest", Path("unused"))
+
+    def test_verification_requires_embedded_changelog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "silicone-shadows-dataset-v1.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr(
+                    "manifest.json",
+                    json.dumps({"dataset_version": "v1", "git_commit": "commit"}),
+                )
+                bundle.writestr("dataset/LICENSE", "license")
+                bundle.writestr("dataset/NOTICE.md", "notice")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(RuntimeError, "missing its changelog"):
+                release_dataset.verify_release_assets(
+                    "v1", Path(directory), "commit", digest
+                )
 
     def test_auto_increments_integer_and_legacy_versions(self):
         releases = [

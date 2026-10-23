@@ -32,23 +32,74 @@ admin/                    # deployment, release, and service administration
 ```
 
 `outline.py` owns standalone mask-to-SVG conversion. `admin/release_dataset.py` owns
-dataset validation, packaging and draft-release automation. Neither depends on
-the web server package.
+dataset validation, packaging and release publication. Changelog generation
+reuses the catalog downloader for product names.
 
 ## Dataset releases
 
-Build a data-only archive using the next integer release name from GitHub:
+Preview a standalone product changelog for the latest published release:
+
+```sh
+.venv/bin/python admin/dataset_changelog.py --output dist/CHANGELOG.md
+```
+
+Pass a release name and optionally `--previous vN` to choose the comparison.
+The preview reads both published ZIPs and their pinned catalogs for product names.
+It groups changed products by status, product type, and vendor, using the same
+classification as the release-note counters. Each product occupies one line;
+outline additions, removals, and updates are counted without listing sizes.
+This preview command does not modify release archives or upload anything.
+Every newly built ZIP includes `CHANGELOG.md` at its top level, generated against
+the latest published release using the same product change classification as
+the release notes. For the first release, the standalone preview lists all
+products as added.
+
+Install the additional plotting dependency once:
+
+```sh
+.venv/bin/python -m pip install -r admin/requirements-charts.txt
+```
+
+Build and publish a data-only release using the next integer release name from GitHub:
 
 ```sh
 .venv/bin/python admin/release_dataset.py
 ```
 
-Pass a name such as `v12` explicitly to override the automatic name. After
-inspecting the generated files under `dist/`, create a GitHub draft with:
+Pass a name such as `v20` explicitly to override the automatic name. Publishing
+requires a clean checkout whose current commit has been pushed. The script uploads
+privately, verifies the archive, then publishes it and regenerates both charts.
+
+To build under `dist/` without uploading, use `--build-only`. To leave an uploaded
+release as a private draft instead, use:
 
 ```sh
 .venv/bin/python admin/release_dataset.py --draft
 ```
+
+Publish the most recently created stable draft without rebuilding its archive:
+
+```sh
+.venv/bin/python admin/release_dataset.py --publish-draft
+```
+
+Add a release name to select a particular draft. Its uploaded archive and digest
+are verified before publication. Drafts and prereleases are excluded from charts.
+
+Both publication paths regenerate `docs/charts/` using published archives and the
+current pinned catalog. Commit and push the generated files to update the README.
+The chart update is local; the script does not commit or push documentation.
+To refresh the charts separately (including after a post-publication chart error):
+
+```sh
+.venv/bin/python admin/release_dataset.py --charts-only
+```
+
+The charts count each product in the current measured catalog once, matching the
+Stats page's measurement filter. Image quality follows each release's main record;
+product types come from the current catalog. Variants and independent records do
+not add counts. `docs/charts/release-history.json` records the plotted counts, and
+both SVG and PNG exports use the same renderer. Early v0.N.0 tags display as vN.
 
 Check the current dataset against the latest published release without changing
 anything:
@@ -64,22 +115,22 @@ SILICONE_SHADOWS_SERVER=example.com
 SILICONE_SHADOWS_USER=root
 ```
 
-Then sync approved records, commit them, push, and create the verified draft in
-one run:
+Then sync approved records, commit them, push, and publish in one run:
 
 ```sh
-.venv/bin/python admin/release_dataset.py --sync-hosted --push --draft
+.venv/bin/python admin/release_dataset.py --sync-hosted --push
 ```
 
-Omit `--push --draft` to sync, commit, and build the archive locally. Syncing
+Use `--sync-hosted --build-only` to sync, commit, and build locally without
+pushing or uploading. Add `--draft` to the publishing command to leave a draft. Syncing
 requires a clean checkout and mirrors the server dataset, including deletions.
 Add `--sync-hosted` to `--check` to also compare the hosted dataset using a
 temporary download, without syncing or modifying the checkout or server.
 
 The script validates every record and SVG before upload. It then downloads the
 draft archive again and verifies it against GitHub's SHA-256 digest, along with
-its manifest version and commit, license, and rights notice. Publication remains
-a manual action on GitHub.
+its manifest version and commit, license, rights notice, and changelog. Publication
+is automatic unless `--draft` is supplied.
 
 Check the pinned catalog against the latest upstream version with
 `.venv/bin/python admin/update_catalog.py`. Add `--update` to update

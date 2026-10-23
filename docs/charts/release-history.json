@@ -1,0 +1,332 @@
+{
+  "catalog_version": 241,
+  "catalog_url": "https://fantasytoybox.net/data/products_v241.json",
+  "measured_products": 1299,
+  "releases": [
+    {
+      "tagName": "v0.1.0",
+      "publishedAt": "2026-08-10T15:34:57Z",
+      "quality": {
+        "good": 100,
+        "bad_perspective": 13,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 111,
+        "Penetrable": 2,
+        "Plug": 3,
+        "Other": 1
+      }
+    },
+    {
+      "tagName": "v0.2.0",
+      "publishedAt": "2026-08-10T18:21:08Z",
+      "quality": {
+        "good": 160,
+        "bad_perspective": 15,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 172,
+        "Penetrable": 2,
+        "Plug": 4,
+        "Other": 1
+      }
+    },
+    {
+      "tagName": "v0.3.0",
+      "publishedAt": "2026-08-10T21:05:23Z",
+      "quality": {
+        "good": 278,
+        "bad_perspective": 16,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 291,
+        "Penetrable": 2,
+        "Plug": 4,
+        "Other": 1
+      }
+    },
+    {
+      "tagName": "v0.4.0",
+      "publishedAt": "2026-08-10T23:26:21Z",
+      "quality": {
+        "good": 327,
+        "bad_perspective": 24,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 339,
+        "Penetrable": 2,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 1
+      }
+    },
+    {
+      "tagName": "v0.5.0",
+      "publishedAt": "2026-08-13T15:40:14Z",
+      "quality": {
+        "good": 405,
+        "bad_perspective": 33,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 423,
+        "Penetrable": 2,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v0.6.0",
+      "publishedAt": "2026-08-14T11:49:20Z",
+      "quality": {
+        "good": 412,
+        "bad_perspective": 34,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 429,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v7",
+      "publishedAt": "2026-08-14T13:25:22Z",
+      "quality": {
+        "good": 469,
+        "bad_perspective": 34,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 486,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v8",
+      "publishedAt": "2026-08-14T23:54:25Z",
+      "quality": {
+        "good": 539,
+        "bad_perspective": 36,
+        "unusable": 4
+      },
+      "types": {
+        "Dildo": 558,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v9",
+      "publishedAt": "2026-08-17T13:58:57Z",
+      "quality": {
+        "good": 620,
+        "bad_perspective": 44,
+        "unusable": 5
+      },
+      "types": {
+        "Dildo": 648,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v10",
+      "publishedAt": "2026-08-21T14:02:24Z",
+      "quality": {
+        "bad_perspective": 52,
+        "good": 699,
+        "unusable": 5
+      },
+      "types": {
+        "Dildo": 735,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v11",
+      "publishedAt": "2026-08-23T01:13:15Z",
+      "quality": {
+        "unusable": 7,
+        "bad_perspective": 64,
+        "good": 713
+      },
+      "types": {
+        "Dildo": 763,
+        "Penetrable": 4,
+        "Plug": 4,
+        "OviAndEgg": 9,
+        "Other": 2,
+        "Paw": 2
+      }
+    },
+    {
+      "tagName": "v12",
+      "publishedAt": "2026-08-25T19:08:13Z",
+      "quality": {
+        "unusable": 10,
+        "bad_perspective": 72,
+        "good": 747
+      },
+      "types": {
+        "Dildo": 787,
+        "Penetrable": 19,
+        "Paw": 3,
+        "Plug": 8,
+        "Wereable": 1,
+        "OviAndEgg": 9,
+        "Other": 2
+      }
+    },
+    {
+      "tagName": "v13",
+      "publishedAt": "2026-08-29T14:18:15Z",
+      "quality": {
+        "unusable": 10,
+        "bad_perspective": 78,
+        "good": 787
+      },
+      "types": {
+        "Dildo": 833,
+        "Penetrable": 19,
+        "Paw": 3,
+        "Plug": 8,
+        "Wereable": 1,
+        "OviAndEgg": 9,
+        "Other": 2
+      }
+    },
+    {
+      "tagName": "v14",
+      "publishedAt": "2026-09-03T21:17:57Z",
+      "quality": {
+        "unusable": 19,
+        "good": 858,
+        "bad_perspective": 115
+      },
+      "types": {
+        "Dildo": 946,
+        "Penetrable": 23,
+        "Paw": 3,
+        "Plug": 8,
+        "Wereable": 1,
+        "OviAndEgg": 9,
+        "Other": 2
+      }
+    },
+    {
+      "tagName": "v15",
+      "publishedAt": "2026-09-23T22:08:54Z",
+      "quality": {
+        "unusable": 19,
+        "good": 874,
+        "bad_perspective": 118
+      },
+      "types": {
+        "Dildo": 965,
+        "Penetrable": 23,
+        "Paw": 3,
+        "Plug": 8,
+        "Wereable": 1,
+        "OviAndEgg": 9,
+        "Other": 2
+      }
+    },
+    {
+      "tagName": "v16",
+      "publishedAt": "2026-09-23T22:09:17Z",
+      "quality": {
+        "unusable": 19,
+        "good": 905,
+        "bad_perspective": 119
+      },
+      "types": {
+        "Dildo": 967,
+        "Penetrable": 41,
+        "Wereable": 5,
+        "OviAndEgg": 13,
+        "Plug": 11,
+        "Paw": 3,
+        "Other": 3
+      }
+    },
+    {
+      "tagName": "v17",
+      "publishedAt": "2026-09-28T10:48:31Z",
+      "quality": {
+        "unusable": 18,
+        "good": 945,
+        "bad_perspective": 109
+      },
+      "types": {
+        "Dildo": 967,
+        "Penetrable": 66,
+        "Wereable": 5,
+        "Other": 7,
+        "OviAndEgg": 13,
+        "Plug": 11,
+        "Paw": 3
+      }
+    },
+    {
+      "tagName": "v18",
+      "publishedAt": "2026-10-09T22:25:42Z",
+      "quality": {
+        "unusable": 26,
+        "good": 969,
+        "bad_perspective": 109
+      },
+      "types": {
+        "Dildo": 989,
+        "Penetrable": 73,
+        "Wereable": 5,
+        "Other": 7,
+        "OviAndEgg": 13,
+        "Plug": 14,
+        "Paw": 3
+      }
+    },
+    {
+      "tagName": "v19",
+      "publishedAt": "2026-10-11T15:48:18Z",
+      "quality": {
+        "unusable": 32,
+        "good": 1066,
+        "bad_perspective": 116
+      },
+      "types": {
+        "Dildo": 989,
+        "Penetrable": 123,
+        "Wereable": 10,
+        "Other": 11,
+        "OviAndEgg": 27,
+        "Plug": 44,
+        "Grinder": 7,
+        "Paw": 3
+      }
+    }
+  ]
+}

@@ -18,6 +18,17 @@ ROOT_YE_CERTIFICATE = (
 )
 
 
+def has_measurements(product: dict) -> bool:
+    return any(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value > 0
+        for size in product.get("sz", {}).get("s", [])
+        if isinstance(size, dict)
+        for value in (size.get("len"), size.get("circ"), size.get("wcirc"))
+    )
+
+
 def ssl_context_for(url: str):
     if urlparse(url).hostname != "fantasytoybox.net":
         return None

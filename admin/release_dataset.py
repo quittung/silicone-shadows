@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and optionally publish a versioned dataset snapshot."""
+"""Build, verify, and publish a dataset release (use --draft to keep it private)."""
 
 import argparse
 import hashlib
@@ -8,6 +8,7 @@ import json
 import math
 import re
 import subprocess
+import sys
 import tarfile
 import zipfile
 import xml.etree.ElementTree as ET
@@ -15,6 +16,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from urllib.parse import quote
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,9 +117,7 @@ def directory_snapshot(root: Path) -> tuple[dict[str, str], Counter[str]]:
     )
 
 
-def latest_release_snapshot(
-    *, ignore_schema_version: bool = False
-) -> tuple[str, tuple[dict[str, str], Counter[str]]]:
+def latest_release_contents() -> tuple[str, list[tuple[str, bytes]], dict]:
     release = json.loads(
         subprocess.check_output(
             ["gh", "release", "view", "--json", "tagName,targetCommitish"],
@@ -148,6 +148,15 @@ def latest_release_snapshot(
             source = bundle.extractfile(member)
             if source is not None:
                 contents.append((member.name.removeprefix("dataset/"), source.read()))
+    catalog = json.loads(git("show", f"{commit}:catalog_source.json"))
+    catalog["url"] = catalog.pop("url_template").format(version=catalog["version"])
+    return tag, contents, catalog
+
+
+def latest_release_snapshot(
+    *, ignore_schema_version: bool = False
+) -> tuple[str, tuple[dict[str, str], Counter[str]]]:
+    tag, contents, _ = latest_release_contents()
     return tag, snapshot(contents, ignore_schema_version=ignore_schema_version)
 
 
@@ -559,9 +568,9 @@ def build_manifest(version: str, files: list[Path]) -> dict:
     }
 
 
-def record_changes(
+def changed_records(
     before: dict[str, str], after: dict[str, str]
-) -> tuple[int, int, int]:
+) -> tuple[set[Path], set[Path], set[Path]]:
     before_records = {
         Path(name).parent for name in before if name.endswith("/metadata.json")
     }
@@ -576,10 +585,17 @@ def record_changes(
         if before.get(name) != after.get(name)
     }
     return (
-        len(after_records - before_records),
-        len(changed_files & before_records & after_records),
-        len(before_records - after_records),
+        after_records - before_records,
+        changed_files & before_records & after_records,
+        before_records - after_records,
     )
+
+
+def record_changes(
+    before: dict[str, str], after: dict[str, str]
+) -> tuple[int, int, int]:
+    added, updated, removed = changed_records(before, after)
+    return len(added), len(updated), len(removed)
 
 
 def release_notes(manifest: dict, changes: tuple[int, int, int]) -> str:
@@ -598,7 +614,7 @@ def release_notes(manifest: dict, changes: tuple[int, int, int]) -> str:
 - Metadata format version: {manifest["schema_version"]}
 - Dataset dedication: CC0-1.0, to the extent contributors hold applicable rights
 
-The attached ZIP contains the published `dataset/` tree and its snapshot manifest.
+The attached ZIP contains the published `dataset/` tree, its snapshot manifest, and `CHANGELOG.md` listing product changes by status, type, and vendor.
 Third-party rights and the project's correction/removal process are described in `dataset/NOTICE.md` inside the archive.
 
 Attribution isn't required; a link to [this repo](https://github.com/quittung/silicone-shadows) is appreciated.
@@ -606,22 +622,35 @@ Attribution isn't required; a link to [this repo](https://github.com/quittung/si
 
 
 def build(version: str, output_dir: Path) -> tuple[Path, Path]:
+    if __package__:
+        from .dataset_changelog import generate_changelog
+    else:
+        from dataset_changelog import generate_changelog
+
     validate_release_name(version)
     files = tracked_dataset_files()
     manifest = build_manifest(version, files)
-    _, (previous_files, _) = latest_release_snapshot(ignore_schema_version=True)
-    current_files, _ = snapshot(
-        [
-            (path.relative_to(ROOT / "dataset").as_posix(), path.read_bytes())
-            for path in files
-        ],
-        ignore_schema_version=True,
+    previous_version, previous_contents, previous_catalog = latest_release_contents()
+    current_contents = [
+        (path.relative_to(ROOT / "dataset").as_posix(), path.read_bytes())
+        for path in files
+    ]
+    previous_files, _ = snapshot(previous_contents, ignore_schema_version=True)
+    current_files, _ = snapshot(current_contents, ignore_schema_version=True)
+    history = generate_changelog(
+        version,
+        previous_version,
+        previous_contents,
+        current_contents,
+        previous_catalog,
+        manifest["catalog"],
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     archive = output_dir / f"silicone-shadows-dataset-{version}.zip"
 
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
         bundle.writestr("manifest.json", json.dumps(manifest, indent=2) + "\n")
+        bundle.writestr("CHANGELOG.md", history)
         for path in files:
             bundle.write(path, path.relative_to(ROOT))
 
@@ -650,6 +679,8 @@ def verify_release_assets(
         raise RuntimeError("downloaded release was built from the wrong commit")
     if not {"dataset/LICENSE", "dataset/NOTICE.md"} <= names:
         raise RuntimeError("downloaded release is missing its license or rights notice")
+    if "CHANGELOG.md" not in names:
+        raise RuntimeError("downloaded release is missing its changelog")
 
 
 def verify_uploaded_release(version: str, expected_commit: str) -> None:
@@ -700,15 +731,124 @@ def ensure_publishable() -> str:
     return head
 
 
+def chart_module():
+    sys.path.insert(0, str(ROOT))
+    from admin import dataset_charts
+
+    dataset_charts.plotting()
+    return dataset_charts
+
+
+def publish_verified_draft(version: str, expected_commit: str) -> None:
+    verify_uploaded_release(version, expected_commit)
+    try:
+        subprocess.run(
+            ["gh", "release", "edit", version, "--draft=false"], cwd=ROOT, check=True
+        )
+        release = json.loads(
+            subprocess.check_output(
+                ["gh", "release", "view", version, "--json", "isDraft,isPrerelease"],
+                cwd=ROOT,
+                text=True,
+            )
+        )
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            f"Could not confirm publication of {version}. Check `gh release view "
+            f"{version}` before retrying; the release may already be public."
+        ) from error
+    if release["isDraft"] or release["isPrerelease"]:
+        raise RuntimeError(f"{version} is not a published stable release")
+    print(f"Published {version}", flush=True)
+    try:
+        chart_module().regenerate()
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            f"{version} is published, but chart generation failed: {error}. "
+            "Retry with --charts-only; do not create another release."
+        ) from error
+
+
+def latest_draft(version: str | None = None) -> tuple[str, str]:
+    if version is None:
+        releases = json.loads(
+            subprocess.check_output(
+                [
+                    "gh",
+                    "release",
+                    "list",
+                    "--limit",
+                    "1000",
+                    "--json",
+                    "tagName,isDraft,isPrerelease,createdAt",
+                ],
+                cwd=ROOT,
+                text=True,
+            )
+        )
+        drafts = [r for r in releases if r["isDraft"] and not r["isPrerelease"]]
+        if not drafts:
+            raise RuntimeError("No stable draft release to publish")
+        version = max(drafts, key=lambda r: r["createdAt"])["tagName"]
+    validate_release_name(version)
+    release = json.loads(
+        subprocess.check_output(
+            [
+                "gh",
+                "release",
+                "view",
+                version,
+                "--json",
+                "isDraft,isPrerelease,targetCommitish",
+            ],
+            cwd=ROOT,
+            text=True,
+        )
+    )
+    if not release["isDraft"] or release["isPrerelease"]:
+        raise RuntimeError(f"{version} is not a stable draft release")
+    target = release["targetCommitish"]
+    if not re.fullmatch(r"[0-9a-f]{40}", target):
+        target = subprocess.check_output(
+            [
+                "gh",
+                "api",
+                "repos/{owner}/{repo}/commits/" + quote(target, safe=""),
+                "--jq",
+                ".sha",
+            ],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    return version, target
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "version",
-        nargs="?",
-        help="release name; defaults to the next vN from GitHub",
+        "version", nargs="?", help="release name; defaults to the next vN"
     )
-    parser.add_argument(
-        "--draft", action="store_true", help="create a private GitHub draft release"
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
+        "--draft", action="store_true", help="leave the release as a private draft"
+    )
+    modes.add_argument(
+        "--build-only", action="store_true", help="build locally without uploading"
+    )
+    modes.add_argument(
+        "--publish-draft",
+        action="store_true",
+        help="publish the latest draft (or the named draft), then regenerate charts",
+    )
+    modes.add_argument(
+        "--charts-only",
+        action="store_true",
+        help="regenerate charts from published releases without publishing",
+    )
+    modes.add_argument(
+        "--check",
+        action="store_true",
+        help="compare local data with the latest published release",
     )
     parser.add_argument(
         "--sync-hosted",
@@ -716,27 +856,34 @@ def main() -> None:
         help="sync and commit hosted data, or include it in --check",
     )
     parser.add_argument(
-        "--push",
-        action="store_true",
-        help="push the hosted dataset commit before creating a draft",
-    )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="compare the local dataset with the latest published release",
+        "--push", action="store_true", help="push the hosted dataset commit"
     )
     args = parser.parse_args()
-
     if args.push and not args.sync_hosted:
         parser.error("--push requires --sync-hosted")
-    if args.sync_hosted and args.draft and not args.push:
-        parser.error("--sync-hosted with --draft also requires --push")
-    if args.check and (args.version or args.draft or args.push):
-        parser.error("--check cannot be combined with release actions or a version")
+    if args.check and (args.version or args.push):
+        parser.error("--check cannot be combined with a version or --push")
+    if args.charts_only and (args.version or args.sync_hosted or args.push):
+        parser.error(
+            "--charts-only cannot be combined with a version, --sync-hosted, or --push"
+        )
+    if args.publish_draft and (args.sync_hosted or args.push):
+        parser.error("--publish-draft cannot be combined with --sync-hosted or --push")
+    if args.sync_hosted and not (args.check or args.build_only or args.push):
+        parser.error("--sync-hosted requires --push when uploading a release")
 
     try:
         if args.check:
             check_state(args.sync_hosted)
+            return
+        if args.charts_only:
+            chart_module().regenerate()
+            return
+        if not (args.draft or args.build_only):
+            chart_module()  # Check dependencies before publication or hosted sync.
+        if args.publish_draft:
+            version, head = latest_draft(args.version)
+            publish_verified_draft(version, head)
             return
         version = args.version or next_release_name()
         validate_release_name(version)
@@ -745,31 +892,36 @@ def main() -> None:
             sync_hosted_dataset(version)
         if args.push:
             subprocess.run(["git", "push"], cwd=ROOT, check=True)
+        head = ensure_publishable() if not args.build_only else None
         archive, notes = build(version, ROOT / "dist")
         print(f"Built {archive.relative_to(ROOT)}")
         print(f"Built {notes.relative_to(ROOT)}")
+        if args.build_only:
+            return
+        # Verify the uploaded archive before making it public.
+        subprocess.run(
+            [
+                "gh",
+                "release",
+                "create",
+                version,
+                str(archive),
+                "--target",
+                head,
+                "--title",
+                f"Dataset {version}",
+                "--notes-file",
+                str(notes),
+                "--draft",
+            ],
+            cwd=ROOT,
+            check=True,
+        )
         if args.draft:
-            head = ensure_publishable()
-            subprocess.run(
-                [
-                    "gh",
-                    "release",
-                    "create",
-                    version,
-                    str(archive),
-                    "--target",
-                    head,
-                    "--title",
-                    f"Dataset {version}",
-                    "--notes-file",
-                    str(notes),
-                    "--draft",
-                ],
-                cwd=ROOT,
-                check=True,
-            )
             verify_uploaded_release(version, head)
-            print("Verified uploaded archive and GitHub digest")
+            print(f"Verified draft {version}; not published")
+        else:
+            publish_verified_draft(version, head)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         parser.error(str(error))
 
