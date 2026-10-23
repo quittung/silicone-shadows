@@ -7,7 +7,7 @@ import secrets
 import shutil
 from io import BytesIO
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -23,6 +23,7 @@ from ..artifacts import (
     read_state,
     svg_main_length,
 )
+from ..catalog import toybox_url, web_url
 from ..review_commit import save_review
 from .. import revisions
 from .. import variants as variant_store
@@ -253,17 +254,6 @@ def register(app: FastAPI, workspace: Workspace) -> None:
             available = variant_store.published_entries(metadata, record["directory"])
             representative = available[0][2]
             main_length = svg_main_length(representative)
-            vendor_url = product.get("link")
-            if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
-                "http",
-                "https",
-            }:
-                vendor_url = None
-            product_type = quote(str(product.get("pt") or "other").lower(), safe="")
-            vendor_term = quote(
-                str(product.get("vn") or "").replace(" ", "_"), safe="_"
-            )
-            search_term = quote(str(product.get("n") or "").replace(" ", "_"), safe="_")
             products.append(
                 {
                     "id": product["id"],
@@ -272,11 +262,8 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "vn": product.get("vn", ""),
                     "pt": product.get("pt", ""),
                     "rating": record["rating"],
-                    "vendor_url": vendor_url,
-                    "toybox_url": (
-                        f"https://fantasytoybox.net/products/{product_type}/"
-                        f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
-                    ),
+                    "vendor_url": web_url(product.get("link")),
+                    "toybox_url": toybox_url(product),
                     "main_length": main_length.model_dump(mode="json"),
                     "svg_url": outline_url("catalog", product["id"], representative),
                     "sizes": [
@@ -338,12 +325,6 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                 )
             if not sizes:
                 continue
-            vendor_url = metadata.get("product_url")
-            if not isinstance(vendor_url, str) or urlparse(vendor_url).scheme not in {
-                "http",
-                "https",
-            }:
-                vendor_url = None
             products.append(
                 {
                     "id": record_id,
@@ -352,7 +333,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                     "vn": metadata.get("vendor", ""),
                     "pt": metadata.get("product_type", ""),
                     "rating": metadata.get("quality"),
-                    "vendor_url": vendor_url,
+                    "vendor_url": web_url(metadata.get("product_url")),
                     "toybox_url": None,
                     "main_length": svg_main_length(outline).model_dump(mode="json"),
                     "svg_url": outline_url("community", record_id, outline),

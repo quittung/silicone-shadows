@@ -9,6 +9,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from ..artifacts import length_preview
+from ..catalog import toybox_url, web_url
 from .. import revisions
 from ..models import IndependentSubmission, IndependentUpdate, ReviewState
 from ..workspace import Workspace
@@ -73,6 +74,12 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         "name": state.metadata.name,
                         "vendor": state.metadata.vendor,
                         "type": state.metadata.product_type,
+                        "sizes": [size.in_inches() for size in state.metadata.sizes],
+                        "vendor_url": web_url(
+                            state.metadata.product_url
+                            and str(state.metadata.product_url)
+                        ),
+                        "toybox_url": None,
                     }
                 ]
                 if independent
@@ -82,6 +89,9 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         "name": product.get("n", ""),
                         "vendor": product.get("vn", ""),
                         "type": product.get("pt", ""),
+                        "sizes": product.get("sz", {}).get("s", []),
+                        "vendor_url": web_url(product.get("link")),
+                        "toybox_url": toybox_url(product),
                     }
                     for product in workspace.catalog_by_stem.get(row["item_id"], [])
                 ]

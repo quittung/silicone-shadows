@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Silicone Shadows · Moderation</title>
   <style>
-    :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --bad:#fb7185; }
+    :root { color-scheme:dark; font:15px/1.4 system-ui,sans-serif; --bg:#111418; --panel:#1a1f25; --border:#333b45; --text:#e8edf2; --muted:#98a3ae; --accent:#22d3ee; --good:#4ade80; --bad:#fb7185; --warning:#fbbf24; }
     * { box-sizing:border-box; }
     body { margin:0; background:var(--bg); color:var(--text); }
     main { max-width:1100px; margin:auto; padding:1rem; }
@@ -13,6 +13,13 @@
     article { padding:1rem; border:1px solid var(--border); border-radius:9px; background:var(--panel); }
     h2 { margin:0; font-size:1.2rem; }
     .meta { color:var(--muted); margin:.2rem 0 .8rem; }
+    .product-links { display:flex; flex-wrap:wrap; gap:.35rem 1rem; margin:.25rem 0 0; }
+    .product-links a { color:var(--accent); text-decoration:none; }
+    .product-links a:hover, .product-links a:focus-visible { text-decoration:underline; }
+    .scaling-warning { margin:0 0 .9rem; padding:.6rem .75rem; border:1px solid var(--warning); border-radius:7px; }
+    .scaling-warning.possible { border-color:var(--border); }
+    .scaling-warning strong { display:block; color:var(--warning); }
+    .scaling-warning span { color:var(--muted); font-size:.9rem; }
     .images { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; min-height:15rem; }
     .images.single { grid-template-columns:1fr; }
     .images figure { margin:0; display:grid; grid-template-rows:auto minmax(0,1fr); }
@@ -49,6 +56,7 @@
     <section id="submissions"></section>
   </main>
   <script src="/static/nav.js?v=20260923-2"></script>
+  <script src="/static/size-scaling.js?v=20261023-1"></script>
   <script>
     const target = document.querySelector('#submissions');
     const status = document.querySelector('#status');
@@ -122,6 +130,36 @@
       return section;
     }
 
+    function productLinks(products) {
+      const links = document.createElement('div'); links.className = 'product-links';
+      const named = products.length > 1;
+      for (const product of products) {
+        for (const [label, href] of [['Toybox', product.toybox_url], [product.vendor || 'Vendor', product.vendor_url]]) {
+          if (!href) continue;
+          const link = document.createElement('a');
+          link.href = href; link.target = '_blank'; link.rel = 'noopener';
+          link.textContent = `${named ? `${product.name} · ` : ''}${label} ↗`;
+          links.append(link);
+        }
+      }
+      return links.childElementCount ? links : null;
+    }
+
+    // Outline submissions with one outline for every size get a scaling warning.
+    function scalingWarning(item) {
+      if (item.kind === 'independent_update' && !item.outline_revision) return null;
+      if (item.variants?.length) return null;
+      const check = worstScalingCheck(item.products.map(product => product.sizes));
+      if (!check?.level) return null;
+      const warning = document.createElement('p');
+      warning.className = `scaling-warning ${check.level}`; warning.setAttribute('role', 'note');
+      const title = document.createElement('strong'); title.textContent = check.label;
+      const detail = document.createElement('span');
+      detail.textContent = `${describeScalingStep(check)}. All sizes use one outline.`;
+      warning.append(title, detail);
+      return warning;
+    }
+
     async function load() {
       const data = await request('/api/moderation/submissions');
       target.replaceChildren();
@@ -135,7 +173,10 @@
         const variants = item.variants || [];
         const source = item.kind === 'independent_update' ? 'metadata-only update' : `${item.source} source`;
         meta.textContent = `${variants.length ? '' : `${source} · `}submitted by ${item.contributor}`;
-        article.append(title, meta);
+        const links = productLinks(item.products);
+        article.append(title, ...(links ? [links] : []), meta);
+        const warning = scalingWarning(item);
+        if (warning) article.append(warning);
         const ratings = {};
         // The root source is a fallback preview only when its outline exists.
         if (!variants.length || item.outline_url) {

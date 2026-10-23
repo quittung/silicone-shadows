@@ -136,6 +136,8 @@ class VariantsTest(unittest.TestCase):
         entries = self.client.get("/api/items/sample/variants").json()["outlines"]
         self.assertEqual(len(entries), 2)
         self.assertEqual(self.client.get(entries[1]["preview_url"]).status_code, 200)
+        item = self.client.get("/api/items").json()["items"][0]
+        self.assertEqual(item["variant_count"], 1)
 
     def test_move_general_to_specific_and_only_expose_assigned_sizes(self):
         self.assertEqual(self.save().status_code, 200)
@@ -247,6 +249,17 @@ class VariantsTest(unittest.TestCase):
         self.assertEqual(
             reviewer.get(submission["variants"][0]["outline_url"]).status_code, 200
         )
+        # Reviewers get the sizes for the scaling check and links to the product.
+        product = submission["products"][0]
+        self.assertEqual([size["len"] for size in product["sizes"]], [4, 6, 8])
+        self.assertIsNone(product["vendor_url"])
+        self.assertEqual(
+            product["toybox_url"],
+            "https://fantasytoybox.net/products/type/"
+            "FilterOptions=Vendor[Vendor]&SearchTerm[Sample]!",
+        )
+        item = reviewer.get("/api/items").json()["items"][0]
+        self.assertEqual(item["variant_count"], 1)
         response = reviewer.post("/api/moderation/submissions/sample/approve")
         self.assertEqual(response.status_code, 204, response.text)
         self.assertTrue(

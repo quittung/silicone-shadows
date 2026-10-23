@@ -118,6 +118,16 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .range output { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 .button-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .45rem; }
 #source-buttons { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+#scaling-notice {
+  margin: 0 0 .85rem; padding: .6rem .65rem;
+  border: 1px solid var(--warning); border-radius: 7px; background: rgb(251 191 36 / 7%);
+}
+#scaling-notice[hidden] { display: none; }
+#scaling-notice.possible, #scaling-notice.covered { border-color: var(--border); background: none; }
+#scaling-notice strong { display: block; color: var(--warning); }
+#scaling-notice.covered strong { color: var(--muted); font-weight: 600; }
+#scaling-notice p { margin: .25rem 0 0; font-size: .85rem; }
+#scaling-notice-variants { width: 100%; margin-top: .6rem; }
 #read-only-info { margin-top: .45rem; }
 #read-only-actions { display: grid; gap: .45rem; margin-top: .75rem; }
 #rereview, #edit-metadata { width: 100%; padding: .7rem; font-weight: 650; }

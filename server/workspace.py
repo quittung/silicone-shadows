@@ -297,6 +297,12 @@ class Workspace:
             "alternative": directory / "alternative.png",
         }
 
+    def pending_record(self, item_id: str) -> dict:
+        """The staged dataset record of a pending catalog submission, if staged."""
+        path = self.pending_paths(item_id)["metadata"]
+        raw = json.loads(path.read_text()) if path.is_file() else {}
+        return raw.get("record") or raw.get("records", [{}])[0]
+
     def discard_work(self, item_id: str) -> None:
         try:
             paths = item_paths(self.work_dir, item_id)
@@ -667,6 +673,7 @@ class Workspace:
             "has_alternative": False,
             "claimed_by": None,
             "claim_expires_at": None,
+            "variant_count": len(metadata.get("variants", {})),
             "independent": True,
             "metadata": metadata,
             "products": [
@@ -952,6 +959,14 @@ class Workspace:
             provenance = None
             svg_product = None
             read_only = state.status == "done" and not state.re_review
+        if self.hosted_store and submission and not own_active_review:
+            variant_count = len(self.pending_record(item_id).get("variants", {}))
+        elif published:
+            variant_count = max(
+                len(record[0].get("variants", {})) for record in published
+            )
+        else:
+            variant_count = 0
         if self.hosted_store and submission and state.rating != "unusable":
             svg_url = f"/api/submissions/{quote(item_id, safe='')}/outline.svg"
         else:
@@ -992,6 +1007,7 @@ class Workspace:
                 else None
             ),
             "claim_expires_at": claim["expires_at"] if claim else None,
+            "variant_count": variant_count,
             "products": [
                 {
                     "id": product["id"],

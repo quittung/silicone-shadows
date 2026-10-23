@@ -149,6 +149,34 @@ function renderVariantControls() {
     note.textContent = [hasFallback ? '* Fallback' : '', hasMissing ? '— No outline' : ''].filter(Boolean).join(' · ');
     coverage.append(note);
   }
+  renderScalingNotice();
+}
+
+function itemSizeLists(item) {
+  // An independent working copy may have edited sizes that are not listed yet.
+  if (item?.independent && item.metadata?.sizes) return [item.metadata.sizes];
+  return (item?.products || []).map(product => product.sz?.s);
+}
+
+function currentScalingWarning() {
+  const check = current && worstScalingCheck(itemSizeLists(current));
+  return check?.level && variantCollection.outlines.length <= 1 ? check : null;
+}
+
+function renderScalingNotice() {
+  const notice = $('#scaling-notice');
+  const check = current && worstScalingCheck(itemSizeLists(current));
+  notice.hidden = !check?.level;
+  if (notice.hidden) return;
+  const outlines = variantCollection.outlines.length;
+  const covered = outlines > 1;
+  notice.className = covered ? 'covered' : check.level;
+  $('#scaling-notice-title').textContent = check.label;
+  $('#scaling-notice-step').textContent = describeScalingStep(check);
+  $('#scaling-notice-advice').textContent = covered
+    ? `Sizes are split across ${outlines} outlines.`
+    : `Every size uses one outline. ${current.read_only ? 'Edit to add' : 'Consider adding'} outlines for sizes with different proportions.`;
+  $('#scaling-notice-variants').hidden = covered;
 }
 
 async function refreshVariants(itemId) {
@@ -229,10 +257,12 @@ function openVariantDialog(mode, target = activeVariant) {
   $('#variant-dialog').showModal();
 }
 
-$('#variants-open').addEventListener('click', () => {
+function openVariantsPanel() {
   renderVariantControls();
   $('#variants-panel').showModal();
-});
+}
+$('#variants-open').addEventListener('click', openVariantsPanel);
+$('#scaling-notice-variants').addEventListener('click', openVariantsPanel);
 $('#variants-close').addEventListener('click', () => $('#variants-panel').close());
 $('#variant-add').addEventListener('click', () => openVariantDialog('add'));
 $('#variant-scope').addEventListener('change', () => {
@@ -266,6 +296,7 @@ function editorUrlView(itemId = current?.id) {
     vendor: $('#vendor-filter').value,
     type: $('#type-filter').value,
     measurements: $('#measurements-filter').value,
+    scaling: $('#scaling-filter').value,
     order: hostedMode ? $('#navigation-order').value : null,
     item: itemId || '',
   };
@@ -285,6 +316,7 @@ function restoreEditorControls(urlState) {
   $('#vendor-filter').value = urlState.vendor;
   $('#type-filter').value = urlState.type;
   $('#measurements-filter').value = urlState.measurements;
+  $('#scaling-filter').value = urlState.scaling;
   if ($('#type-filter').value !== urlState.type) $('#type-filter').value = '';
   if (hostedMode) {
     prioritizeLeastRecent = urlState.order !== 'catalog';
@@ -395,6 +427,9 @@ function matchesCatalogFilters(item) {
   const vendor = $('#vendor-filter').value;
   const type = $('#type-filter').value.trim().toLowerCase();
   const measuredOnly = $('#measurements-filter').value === 'measured';
+  const scaling = $('#scaling-filter').value;
+  if (scaling !== 'all' && (item.variant_count ||
+      !meetsScalingLevel(worstScalingCheck(itemSizeLists(item)), scaling))) return false;
   const products = item.products?.length
     ? item.products
     : [{ n: item.id, vn: '', pt: '' }];
@@ -477,6 +512,7 @@ function showEmptyState(title, message) {
   current = null;
   $('#variant-controls').hidden = true;
   $('#variant-blank').hidden = true;
+  $('#scaling-notice').hidden = true;
   $('#published-state').classList.remove('visible');
   setSidebarMode('empty');
   setEditorDisabled(false);
@@ -1179,6 +1215,11 @@ async function saveAndNext() {
   if (state.rating !== 'unusable' && !state.main_length) {
     return setStatus('Usable items require a base-to-tip line', true);
   }
+  const scalingWarning = state.rating !== 'unusable' && currentScalingWarning();
+  if (scalingWarning && !confirm(
+    `${scalingWarning.label}\n${describeScalingStep(scalingWarning)}.\n\n` +
+    `Every size will use this one outline. ${hostedMode ? 'Submit' : 'Save'} anyway?`,
+  )) return setStatus('Not saved · Use Variants to add outlines for other sizes');
   const orderedIds = navigationIds || items.map(item => item.id);
   const oldIndex = orderedIds.indexOf(current.id);
   try {
@@ -1471,6 +1512,7 @@ $('#use-saved-photo').addEventListener('click', async () => {
 $('#filter').addEventListener('change', () => applyFilters());
 $('#type-filter').addEventListener('change', () => applyFilters());
 $('#measurements-filter').addEventListener('change', () => applyFilters());
+$('#scaling-filter').addEventListener('change', () => applyFilters());
 $('#navigation-order').addEventListener('change', () => {
   prioritizeLeastRecent = $('#navigation-order').value === 'least-recent';
   try {
@@ -1513,12 +1555,14 @@ $('#clear-filters').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
   $('#measurements-filter').value = 'all';
+  $('#scaling-filter').value = 'all';
   applyFilters();
 });
 $('#show-all').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
   $('#measurements-filter').value = 'all';
+  $('#scaling-filter').value = 'all';
   applyFilters();
 });
 window.beforeAppLogout = releaseCurrentClaim;

@@ -7,7 +7,7 @@ import sys
 import unicodedata
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from .artifacts import atomic_bytes
@@ -26,6 +26,24 @@ def has_measurements(product: dict) -> bool:
         for size in product.get("sz", {}).get("s", [])
         if isinstance(size, dict)
         for value in (size.get("len"), size.get("circ"), size.get("wcirc"))
+    )
+
+
+def web_url(value: object) -> str | None:
+    """Return value when it is an absolute http(s) link safe to show as a link."""
+    if isinstance(value, str) and urlparse(value).scheme in {"http", "https"}:
+        return value
+    return None
+
+
+def toybox_url(product: dict) -> str:
+    """Link to the product's Fantasy Toybox listing via its filtered search."""
+    product_type = quote(str(product.get("pt") or "other").lower(), safe="")
+    vendor_term = quote(str(product.get("vn") or "").replace(" ", "_"), safe="_")
+    search_term = quote(str(product.get("n") or "").replace(" ", "_"), safe="_")
+    return (
+        f"https://fantasytoybox.net/products/{product_type}/"
+        f"FilterOptions=Vendor[{vendor_term}]&SearchTerm[{search_term}]!"
     )
 
 
