@@ -25,6 +25,7 @@ from .artifacts import (
     read_state,
 )
 from .catalog import has_measurements, slug, ssl_context_for
+from .catalog_checks import measurement_issues
 from .hosted import HostedStore, PublicQueue, User
 from .models import GuestMetadata, IndependentSubmission, ReviewState
 
@@ -177,6 +178,8 @@ class Workspace:
             if not pic.name or pic.suffix.lower() not in SOURCE_SUFFIXES:
                 raise ValueError(f"unsupported catalog image path: {product['pic']}")
             pics_by_stem.setdefault(pic.stem, set()).add(product["pic"])
+
+        self.catalog_issues = measurement_issues(self.catalog)
 
         self.catalog_by_stem: dict[str, list[dict]] = {}
         self.catalog_by_id: dict[str, dict] = {}
@@ -687,6 +690,7 @@ class Workspace:
                     "tags": metadata.get("tags", []),
                     "feat": {feature: True for feature in metadata.get("features", [])},
                     "sz": {"s": metadata.get("sizes", [])},
+                    "data_issues": [],
                 }
             ],
         }
@@ -1019,6 +1023,7 @@ class Workspace:
                     "tags": product.get("tags", []),
                     "feat": product.get("feat", {}),
                     "sz": product.get("sz", {"s": []}),
+                    "data_issues": self.catalog_issues.get(product["id"], []),
                 }
                 for product in products
             ],

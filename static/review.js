@@ -123,6 +123,17 @@ function renderVariantControls() {
   const table = document.createElement('table'); table.setAttribute('aria-label', 'Size coverage');
   const headers = document.createElement('tr');
   const values = document.createElement('tr');
+  const suggestions = document.createElement('tr');
+  const groups = suggestedSizeGroups();
+  const wrongValues = wrongValueLabels(current);
+  const groupsByOutline = new Map();
+  if (groups.size) {
+    headers.append(document.createElement('td'));
+    for (const [row, text] of [[values, 'Outline'], [suggestions, 'Suggested']]) {
+      const header = document.createElement('th'); header.scope = 'row'; header.textContent = text;
+      row.append(header);
+    }
+  }
   const fallback = variantCollection.outlines.find(entry => entry.id === '');
   let hasFallback = false;
   let hasMissing = false;
@@ -140,22 +151,76 @@ function renderVariantControls() {
     hasFallback ||= !!outline && !specific;
     hasMissing ||= !outline;
     headers.append(label); values.append(value);
+    if (groups.size) {
+      const group = groups.get(size) ?? null;
+      const wrongValue = wrongValues.has(variantCollection.size_labels?.[size] || size);
+      const suggestion = document.createElement('td'); suggestion.className = 'variant-suggested';
+      suggestion.textContent = group !== null ? groupLetter(group) : wrongValue ? '?' : '–';
+      suggestion.title = group !== null ? `${size}: Suggested group ${groupLetter(group)}`
+        : wrongValue ? `${size}: Catalog measurements look wrong, so this size is left out`
+        : `${size}: Not enough measurements to compare`;
+      suggestion.setAttribute('aria-label', suggestion.title);
+      suggestions.append(suggestion);
+      if (outline && group !== null) {
+        if (!groupsByOutline.has(outline.id)) groupsByOutline.set(outline.id, new Set());
+        groupsByOutline.get(outline.id).add(group);
+      }
+    }
   }
   const head = document.createElement('thead'); head.append(headers);
   const body = document.createElement('tbody'); body.append(values);
+  if (groups.size) body.append(suggestions);
   table.append(head, body); coverage.append(table);
-  if (hasFallback || hasMissing) {
+  const legend = [hasFallback ? '* Fallback' : '', hasMissing ? '— No outline' : '',
+    groups.size ? 'Same letter: similar proportions' : '',
+    groups.size && wrongValues.size ? '? Catalog value looks wrong' : ''].filter(Boolean);
+  if (legend.length) {
     const note = document.createElement('small');
-    note.textContent = [hasFallback ? '* Fallback' : '', hasMissing ? '— No outline' : ''].filter(Boolean).join(' · ');
+    note.textContent = legend.join(' · ');
     coverage.append(note);
+  }
+  for (const [id, outlineGroups] of groupsByOutline) {
+    if (outlineGroups.size < 2) continue;
+    const warning = document.createElement('small'); warning.className = 'variant-mixed';
+    const letters = [...outlineGroups].sort((left, right) => left - right).map(groupLetter);
+    warning.textContent = `${outlineLabel(id)} covers groups ${new Intl.ListFormat('en').format(letters)}`;
+    coverage.append(warning);
   }
   renderScalingNotice();
 }
 
+// Matches the server's size keys: full labels, falling back to short labels.
+function sizeKey(size) {
+  return String(size?.sl || size?.label || size?.ShortLabel || size?.short_label || '');
+}
+
+function groupLetter(group) {
+  return String.fromCharCode(65 + group);
+}
+
+// Suggested outline groups by size key. Products sharing one catalog image can
+// differ in proportions, so suggestions need exactly one measured size list.
+function suggestedSizeGroups() {
+  const lists = itemSizeLists(current).filter(sizes => sizes?.length);
+  if (lists.length !== 1) return new Map();
+  const groups = suggestOutlineGroups(lists[0]);
+  if (groups.filter(group => group !== null).length < 2) return new Map();
+  return new Map(lists[0].map((size, index) => [sizeKey(size), groups[index]]));
+}
+
+// Size lists for comparisons, without sizes whose catalog values look wrong.
 function itemSizeLists(item) {
   // An independent working copy may have edited sizes that are not listed yet.
   if (item?.independent && item.metadata?.sizes) return [item.metadata.sizes];
-  return (item?.products || []).map(product => product.sz?.s);
+  return (item?.products || []).map(product => withoutWrongValues(product.sz?.s, product.data_issues));
+}
+
+function itemDataIssues(item) {
+  return (item?.products || []).flatMap(product => product.data_issues || []);
+}
+
+function wrongValueLabels(item) {
+  return new Set(itemDataIssues(item).filter(issue => issue.wrong_value).flatMap(issue => issue.sizes));
 }
 
 function currentScalingWarning() {
@@ -166,16 +231,31 @@ function currentScalingWarning() {
 function renderScalingNotice() {
   const notice = $('#scaling-notice');
   const check = current && worstScalingCheck(itemSizeLists(current));
-  notice.hidden = !check?.level;
+  const issues = current ? itemDataIssues(current) : [];
+  const flagged = !!check?.level;
+  notice.hidden = !flagged && !issues.length;
   if (notice.hidden) return;
   const outlines = variantCollection.outlines.length;
-  const covered = outlines > 1;
-  notice.className = covered ? 'covered' : check.level;
-  $('#scaling-notice-title').textContent = check.label;
-  $('#scaling-notice-step').textContent = describeScalingStep(check);
-  $('#scaling-notice-advice').textContent = covered
-    ? `Sizes are split across ${outlines} outlines.`
-    : `Every size uses one outline. ${current.read_only ? 'Edit to add' : 'Consider adding'} outlines for sizes with different proportions.`;
+  const covered = flagged && outlines > 1;
+  notice.className = !flagged ? 'data' : covered ? 'covered' : check.level;
+  $('#scaling-notice-title').textContent = flagged ? check.label : 'Catalog data may be wrong';
+  $('#scaling-notice-step').hidden = $('#scaling-notice-advice').hidden = !flagged;
+  if (flagged) {
+    $('#scaling-notice-step').textContent = describeScalingStep(check);
+    $('#scaling-notice-advice').textContent = covered
+      ? `Sizes are split across ${outlines} outlines.`
+      : `Every size uses one outline. ${current.read_only ? 'Edit to add' : 'Consider adding'} outlines for sizes with different proportions.`;
+  }
+  $('#scaling-notice-issues-lead').hidden = !flagged || !issues.length;
+  $('#scaling-notice-issues').replaceChildren(...issues.map(issue => {
+    const item = document.createElement('li');
+    item.textContent = `${issue.detail[0].toUpperCase()}${issue.detail.slice(1)}.`;
+    return item;
+  }));
+  const wrongValues = [...wrongValueLabels(current)];
+  $('#scaling-notice-excluded').hidden = !wrongValues.length;
+  $('#scaling-notice-excluded').textContent =
+    `Left out of the size check: ${new Intl.ListFormat('en').format(wrongValues)}.`;
 }
 
 async function refreshVariants(itemId) {
@@ -243,6 +323,7 @@ function openVariantDialog(mode, target = activeVariant) {
   $('#variant-specific').checked = !$('#variant-general').checked;
   const selected = variantCollection.outlines.find(entry => entry.id === target);
   const list = $('#variant-sizes'); list.replaceChildren();
+  const groups = suggestedSizeGroups();
   for (const size of variantCollection.sizes) {
     const owner = variantCollection.outlines.find(entry => entry.sizes.includes(size));
     const label = document.createElement('label');
@@ -250,6 +331,13 @@ function openVariantDialog(mode, target = activeVariant) {
     checkbox.checked = mode === 'assign' && !!selected?.sizes.includes(size);
     checkbox.disabled = !!owner && (mode === 'add' || owner.id !== target);
     label.append(checkbox, document.createTextNode(`${size}${checkbox.disabled ? ` (assigned to ${outlineLabel(owner.id)})` : ''}`));
+    const group = groups.get(size) ?? null;
+    if (group !== null) {
+      const tag = document.createElement('span'); tag.className = 'variant-group-tag';
+      tag.textContent = groupLetter(group); tag.title = `Suggested group ${groupLetter(group)}`;
+      tag.setAttribute('aria-label', tag.title);
+      label.append(tag);
+    }
     list.append(label);
   }
   $('#variant-sizes').hidden = $('#variant-general').checked;

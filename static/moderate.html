@@ -17,9 +17,10 @@
     .product-links a { color:var(--accent); text-decoration:none; }
     .product-links a:hover, .product-links a:focus-visible { text-decoration:underline; }
     .scaling-warning { margin:0 0 .9rem; padding:.6rem .75rem; border:1px solid var(--warning); border-radius:7px; }
-    .scaling-warning.possible { border-color:var(--border); }
+    .scaling-warning.possible, .scaling-warning.data { border-color:var(--border); }
     .scaling-warning strong { display:block; color:var(--warning); }
-    .scaling-warning span { color:var(--muted); font-size:.9rem; }
+    .scaling-warning span, .scaling-warning ul { color:var(--muted); font-size:.9rem; }
+    .scaling-warning ul { margin:.25rem 0 0; padding-left:1.2rem; }
     .images { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; min-height:15rem; }
     .images.single { grid-template-columns:1fr; }
     .images figure { margin:0; display:grid; grid-template-rows:auto minmax(0,1fr); }
@@ -56,7 +57,7 @@
     <section id="submissions"></section>
   </main>
   <script src="/static/nav.js?v=20260923-2"></script>
-  <script src="/static/size-scaling.js?v=20261023-1"></script>
+  <script src="/static/size-scaling.js?v=20261024-catalog-1"></script>
   <script>
     const target = document.querySelector('#submissions');
     const status = document.querySelector('#status');
@@ -145,18 +146,34 @@
       return links.childElementCount ? links : null;
     }
 
-    // Outline submissions with one outline for every size get a scaling warning.
+    // Outline submissions with one outline for every size get a scaling warning;
+    // catalog data issues are shown either way.
     function scalingWarning(item) {
-      if (item.kind === 'independent_update' && !item.outline_revision) return null;
-      if (item.variants?.length) return null;
-      const check = worstScalingCheck(item.products.map(product => product.sizes));
-      if (!check?.level) return null;
-      const warning = document.createElement('p');
-      warning.className = `scaling-warning ${check.level}`; warning.setAttribute('role', 'note');
-      const title = document.createElement('strong'); title.textContent = check.label;
-      const detail = document.createElement('span');
-      detail.textContent = `${describeScalingStep(check)}. All sizes use one outline.`;
-      warning.append(title, detail);
+      const outlineSubmission = item.kind !== 'independent_update' || item.outline_revision;
+      const check = outlineSubmission && !item.variants?.length
+        ? worstScalingCheck(item.products.map(product => withoutWrongValues(product.sizes, product.data_issues)))
+        : null;
+      const issues = item.products.flatMap(product => product.data_issues || []);
+      if (!check?.level && !issues.length) return null;
+      const warning = document.createElement('div');
+      warning.className = `scaling-warning ${check?.level || 'data'}`; warning.setAttribute('role', 'note');
+      const title = document.createElement('strong');
+      title.textContent = check?.level ? check.label : 'Catalog data may be wrong';
+      warning.append(title);
+      if (check?.level) {
+        const detail = document.createElement('span');
+        detail.textContent = `${describeScalingStep(check)}. All sizes use one outline.`;
+        warning.append(detail);
+      }
+      if (issues.length) {
+        const list = document.createElement('ul');
+        for (const issue of issues) {
+          const entry = document.createElement('li');
+          entry.textContent = `${check?.level ? 'Catalog: ' : ''}${issue.detail[0].toUpperCase()}${issue.detail.slice(1)}.`;
+          list.append(entry);
+        }
+        warning.append(list);
+      }
       return warning;
     }
 

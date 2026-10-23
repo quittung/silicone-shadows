@@ -194,15 +194,40 @@ tools. Reloading or leaving a dirty tab displays the browser unsaved-work warnin
 
 Outlines are scaled uniformly by usable length, so a product whose girth does not
 grow with its length between sizes may need size-specific outlines.
-`static/size-scaling.js` compares each pair of consecutive sizes, ordered by
-length, and reports the worst mismatch between circumference growth (`circ` or
-`wcirc`) and length growth. A 25% mismatch is *likely* non-uniform and 15% is
-*possibly* non-uniform; smaller mismatches are mostly catalog rounding.
+`static/size-scaling.js` compares every pair of sizes and reports the worst
+mismatch between circumference growth (`circ` or `wcirc`) and length growth. A
+25% mismatch is *likely* non-uniform and 15% is *possibly* non-uniform; smaller
+mismatches are mostly catalog rounding.
 
 The editor, its **Size scaling** queue filter and the moderation page share this
 check. Combine the filter with **Outlines: One outline** to list flagged
-products that have no size-specific outlines yet. The editor shows a notice when a product is flagged and asks for
-confirmation before saving a flagged product with only one outline. Moderation
-shows the same warning for submissions without size-specific outlines. The
-check uses catalog measurements only, so shape changes that keep girth
-proportional are not detected.
+products that have no size-specific outlines yet. The editor shows a notice when
+a product is flagged and asks for confirmation before saving a flagged product
+with only one outline. Moderation shows the same warning for submissions without
+size-specific outlines. The check uses catalog measurements only, so shape
+changes that keep girth proportional are not detected.
+
+The Variants panel also suggests groups of sizes that can share an outline.
+In length order, each size joins the group whose smallest size has the closest
+proportions within the 15% tolerance, or starts a new group. An outline that
+covers sizes from several groups is pointed out. Products sharing one catalog
+image get no suggestions, since their proportions can differ.
+
+## Catalog consistency checks
+
+`server/catalog_checks.py` looks for suspicious catalog measurements: duplicate
+or identical sizes, lengths or girths out of order, implausibly large
+circumferences (often a unit or π conversion slip), and single sizes that break
+the proportions of their neighbours. The workspace runs it when the catalog
+loads. The editor and moderation page list a product's findings, and sizes that
+probably carry one wrong value are left out of the scaling check and suggested
+groups.
+
+Write a report for the pinned catalog, e.g. to send to the catalog maintainer:
+
+```sh
+.venv/bin/python admin/catalog_audit.py --output dist/catalog-report.md
+```
+
+Add `--json` for machine-readable findings, or `--products` to audit another
+catalog file. Findings are leads to verify against vendor size charts.

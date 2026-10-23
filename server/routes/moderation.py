@@ -75,6 +75,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         "vendor": state.metadata.vendor,
                         "type": state.metadata.product_type,
                         "sizes": [size.in_inches() for size in state.metadata.sizes],
+                        "data_issues": [],
                         "vendor_url": web_url(
                             state.metadata.product_url
                             and str(state.metadata.product_url)
@@ -90,6 +91,7 @@ def register(app: FastAPI, workspace: Workspace) -> None:
                         "vendor": product.get("vn", ""),
                         "type": product.get("pt", ""),
                         "sizes": product.get("sz", {}).get("s", []),
+                        "data_issues": workspace.catalog_issues.get(product["id"], []),
                         "vendor_url": web_url(product.get("link")),
                         "toybox_url": toybox_url(product),
                     }

@@ -138,6 +138,8 @@ class VariantsTest(unittest.TestCase):
         self.assertEqual(self.client.get(entries[1]["preview_url"]).status_code, 200)
         item = self.client.get("/api/items").json()["items"][0]
         self.assertEqual(item["variant_count"], 1)
+        # The fixture has no size codes, which only concerns catalog upkeep.
+        self.assertEqual(item["products"][0]["data_issues"], [])
 
     def test_move_general_to_specific_and_only_expose_assigned_sizes(self):
         self.assertEqual(self.save().status_code, 200)

@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const {
-  scalingCheck, worstScalingCheck, meetsScalingLevel, describeScalingStep,
+  scalingCheck, worstScalingCheck, meetsScalingLevel, describeScalingStep, suggestOutlineGroups,
+  withoutWrongValues,
 } = require('../static/size-scaling.js');
 
 // Uniform within rounding: no level.
@@ -72,3 +73,53 @@ assert.equal(meetsScalingLevel(slimmer, 'likely'), false);
 assert.equal(meetsScalingLevel(uniform, 'possible'), false);
 assert.equal(meetsScalingLevel(null, 'possible'), false);
 assert.equal(meetsScalingLevel(thicker, 'all'), false);
+
+// Groups follow length order and compare against each group's smallest size,
+// so small steps cannot drift into one group.
+assert.deepEqual(suggestOutlineGroups([
+  { sl: 'Large', len: 10, circ: 7 },
+  { sl: 'Small', len: 5, circ: 5 },
+  { sl: 'Medium', len: 6, circ: 6 },
+  { sl: 'XL', len: 12, circ: 8.4 },
+]), [1, 0, 0, 1]);
+// Girth grows with length^0.7: each step is about 5% slimmer, but 9 vs 5 is 16%.
+const drifting = [5, 6, 7, 8, 9].map(length => ({ len: length, circ: 5 * (length / 5) ** 0.7 }));
+assert.deepEqual(suggestOutlineGroups(drifting), [0, 0, 0, 0, 1]);
+// An odd size (here a likely catalog typo) does not split the sizes around it.
+assert.deepEqual(suggestOutlineGroups([
+  { ShortLabel: 'XS', len: 5.5, circ: 3.9, wcirc: 5.4 },
+  { ShortLabel: 'S', len: 6.3, circ: 4.5, wcirc: 6.3 },
+  { ShortLabel: 'M', len: 7.8, circ: 5.3, wcirc: 7.4 },
+  { ShortLabel: 'L', len: 9.5, circ: 9.8, wcirc: 9.5 },
+  { ShortLabel: 'XL', len: 11.3, circ: 7.9, wcirc: 11.3 },
+]), [0, 0, 0, 1, 0]);
+// Unmeasured sizes are left out; one comparable size is its own group.
+assert.deepEqual(suggestOutlineGroups([{ len: 5, circ: 5 }, { len: 6 }, { circ: 4 }]), [0, null, null]);
+// Sizes without a shared girth measure cannot share a group.
+assert.deepEqual(suggestOutlineGroups([{ len: 5, circ: 5 }, { len: 6, wcirc: 7 }]), [0, 1]);
+assert.deepEqual(suggestOutlineGroups(undefined), []);
+
+// Every pair counts: no neighbouring step reaches 15%, but S vs L does.
+const gradual = scalingCheck([
+  { ShortLabel: 'S', len: 5, circ: 5 },
+  { ShortLabel: 'M', len: 6, circ: 5.6 },
+  { ShortLabel: 'L', len: 7, circ: 5.9 },
+]);
+assert.equal(gradual.from, 'S');
+assert.equal(gradual.to, 'L');
+assert.equal(gradual.level, 'possible');
+
+// Sizes with a single wrong catalog value are left out of comparisons.
+const austin = [
+  { ShortLabel: 'M', len: 7.8, circ: 5.3 },
+  { ShortLabel: 'L', len: 9.5, circ: 9.8 },
+  { ShortLabel: 'XL', len: 11.3, circ: 7.9 },
+];
+const issues = [
+  { sizes: ['L', 'XL'], wrong_value: false },
+  { sizes: ['L'], wrong_value: true },
+];
+assert.deepEqual(withoutWrongValues(austin, issues).map(size => size.ShortLabel), ['M', 'XL']);
+assert.equal(scalingCheck(withoutWrongValues(austin, issues)).level, null);
+assert.equal(withoutWrongValues(austin, undefined).length, 3);
+assert.deepEqual(withoutWrongValues(undefined, issues), []);
