@@ -240,7 +240,7 @@ class HostedAppTest(unittest.TestCase):
         )
         self.assertEqual(anonymous.get("/api/items").status_code, 401)
         self.assertEqual(anonymous.get("/compare").status_code, 200)
-        for asset in ("nav.css", "nav.js", "select.css"):
+        for asset in ("nav.css", "nav.js", "select.css", "compare-share.js"):
             self.assertEqual(anonymous.get(f"/static/{asset}").status_code, 200)
         comparison = anonymous.get("/api/comparison/products")
         self.assertEqual(comparison.status_code, 200)

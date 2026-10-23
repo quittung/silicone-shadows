@@ -62,6 +62,7 @@ def register(app: FastAPI, workspace: Workspace, secure_cookies: bool) -> None:
                 "/static/nav.css",
                 "/static/nav.js",
                 "/static/select.css",
+                "/static/compare-share.js",
             }
             or (
                 path.startswith("/api/comparison/outlines/")
