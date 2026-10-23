@@ -757,6 +757,23 @@
       if (values.includes(previous)) select.value = previous;
     }
 
+    // Apparel-style labels (XXS, 3XS, M, XL, 4XL…) rank by size; anything else follows naturally.
+    function sizeRank(label) {
+      const match = /^(?:(\d+)X|(X*))([SML])$/i.exec(label.trim());
+      if (!match) return null;
+      const steps = match[1] ? Number(match[1]) : match[2].length;
+      const base = match[3].toUpperCase();
+      if (base === 'M') return steps ? null : 0;
+      return (base === 'S' ? -1 : 1) * (steps + 1);
+    }
+
+    function compareSizeLabels(left, right) {
+      const a = sizeRank(left), b = sizeRank(right);
+      if (a !== null && b !== null) return a - b;
+      if (a !== null || b !== null) return a === null ? 1 : -1;
+      return left.localeCompare(right, undefined, {numeric:true, sensitivity:'base'});
+    }
+
     function refreshFilterOptions() {
       const name = $('#search').value.trim().toLowerCase();
       const vendor = $('#vendor').value.trim().toLowerCase();
@@ -767,7 +784,7 @@
       const type = $('#type').value;
       const sizes = [...new Set(candidates.filter(product => !type || product.pt === type)
         .flatMap(product => product.sizes.map(size => size.label)).filter(Boolean))]
-        .sort((left, right) => left.localeCompare(right, undefined, {numeric:true, sensitivity:'base'}));
+        .sort(compareSizeLabels);
       replaceFilterOptions($('#size-filter'), 'Any size', sizes);
     }
 
