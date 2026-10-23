@@ -4,11 +4,7 @@ This is a community project to create a clean silhouette and main-length alignme
 
 The review app removes backgrounds from product photos and provides a quick workflow for correcting the mask, rating the result, and marking the product's usable length. The catalog contains adult products, so contributors should expect adult imagery in the review interface.
 
-## Dataset progress
-
 [![Processed products by type across dataset releases](docs/charts/product-type-history.svg)](docs/charts/product-type-history.svg)
-
-[Image quality across releases](docs/charts/image-quality-history.svg)
 
 ## The dataset
 

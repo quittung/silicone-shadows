@@ -158,8 +158,7 @@ def render_chart(data: dict, field: str, output_dir: Path) -> None:
             "svg.hashsalt": "dataset-charts",
         }
     ):
-        fig, ax = plt.subplots(figsize=(10.5, height), facecolor="#111418")
-        ax.set_facecolor("#1a1f25")
+        fig, ax = plt.subplots(figsize=(10.5, height))
         fig.subplots_adjust(
             left=0.085,
             right=0.975,
@@ -226,6 +225,7 @@ def render_chart(data: dict, field: str, output_dir: Path) -> None:
             fig.savefig(
                 path,
                 dpi=160,
+                transparent=True,
                 metadata={"Date": None} if extension == "svg" else None,
             )
             if extension == "svg":
