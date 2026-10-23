@@ -8,7 +8,7 @@ vm.runInContext(`
 let objects = [], placementArea = null, scaleLocked = false;
 const wrap = {clientWidth:1000, clientHeight:700};
 const view = {zoom:30, x:0, y:0};
-const MIN_ZOOM = 1;
+const MIN_ZOOM = 1, OUTLINE_GAP = .65;
 function screenToWorld(x,y) { return [(x-view.x)/view.zoom,(y-view.y)/view.zoom]; }
 function objectBounds(o) { return [[o.x-o.w/2,o.y-o.h/2],[o.x+o.w/2,o.y+o.h/2]]; }
 function renderLayers() {} function render() {} function queueWorkspaceSave() {}

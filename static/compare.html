@@ -18,6 +18,7 @@
     button:disabled { cursor:not-allowed; opacity:.45; }
     button:hover, button.active { border-color:var(--accent); background:#263943; }
     .row { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
+    .canvas-actions { grid-template-columns:repeat(3,1fr); margin-top:.65rem; }
     .filters { display:grid; grid-template-columns:1fr 1fr; gap:.45rem; }
     .section-label { margin:0 0 .45rem; color:var(--muted); font-size:.86rem; text-align:center; }
     .divider { display:flex; align-items:center; gap:.55rem; margin:.75rem 0; color:var(--muted); font-size:.8rem; }
@@ -106,7 +107,8 @@
     #share:hover:not(:disabled) { color:var(--accent); border-color:var(--accent); background:#263943; }
     #share:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
     #share-link { min-width:0; }
-    .import-actions { grid-template-columns:repeat(3,1fr); }
+    .import-actions, .align-actions { grid-template-columns:repeat(3,1fr); }
+    .align-cancel { grid-template-columns:1fr; margin-top:0; }
     #share-message { color:var(--muted); font-size:.86rem; overflow-wrap:anywhere; }
     #confirm-age, #confirm-bulk-add, #continue-loading, #import-add, #copy-share { border-color:#168da0; background:#164b56; }
     #mobile-panel-toggle { display:none; }
@@ -184,6 +186,18 @@
       </div>
     </form>
   </dialog>
+  <dialog id="align-dialog" aria-labelledby="align-title" aria-describedby="align-message">
+    <form method="dialog" class="dialog-form">
+      <h2 id="align-title">Align products</h2>
+      <p id="align-message">Stand every outline upright and line them up at their…</p>
+      <div class="dialog-actions align-actions">
+        <button value="tip">Tip</button>
+        <button value="depth">Full depth</button>
+        <button value="base">Base</button>
+      </div>
+      <div class="dialog-actions align-cancel"><button value="cancel" autofocus>Cancel</button></div>
+    </form>
+  </dialog>
   <dialog id="share-dialog" aria-labelledby="share-title">
     <form method="dialog" class="dialog-form">
       <h2 id="share-title">Share comparison</h2>
@@ -226,7 +240,7 @@
           <button id="imperial" aria-pressed="false">Imperial</button>
           <button id="metric" class="active" aria-pressed="true">Metric</button>
         </div>
-        <div class="row" style="margin-top:.65rem"><button id="measure">Measure</button><button id="clear">Clear canvas</button></div>
+        <div class="row canvas-actions"><button id="measure">Measure</button><button id="align" disabled>Align</button><button id="clear">Clear</button></div>
       </fieldset>
 
       <fieldset id="add-products">
@@ -319,6 +333,7 @@
     const CRAWLING_FRAME_MS = 250;
     const WARNING_STREAK = 3;
     const LAYER_PAGE_SIZE = 100;
+    const OUTLINE_GAP = .65;
     const DEFAULT_PRODUCT_ID = 'reference:credit-card';
     let workspaceReady = false;
     let restoreStopped = false;
@@ -358,6 +373,7 @@
       $('#share').disabled = true;
       $('#clear').disabled = true;
       $('#measure').disabled = true;
+      $('#align').disabled = true;
       $('#stop-loading').textContent = 'Stop loading';
       $('#loading-progress-note').textContent = action === 'Importing'
         ? 'Stopping leaves your current canvas unchanged.'
@@ -375,7 +391,7 @@
       $('#clear').disabled = false;
       $('#measure').disabled = false;
       filterProducts();
-      updateShareButton();
+      updateObjectActions();
     }
 
     function updateLoadingProgress(operation) {
@@ -451,15 +467,16 @@
       return palette.reduce((best, color) => counts.get(color) < counts.get(best) ? color : best);
     }
 
-    function updateShareButton() {
+    function updateObjectActions() {
       $('#share').disabled = !workspaceReady || !!activeLoad || !objects.length || sharing;
+      $('#align').disabled = !workspaceReady || !!activeLoad || objects.length < 2;
     }
 
     let sharing = false;
     async function shareComparison() {
       if (sharing || activeLoad || !workspaceReady || !objects.length) return;
       sharing = true;
-      updateShareButton();
+      updateObjectActions();
       const dialog = $('#share-dialog');
       const input = $('#share-link');
       input.value = '';
@@ -482,7 +499,7 @@
         $('#share-message').textContent = `Could not create a link. ${error.message}`;
       } finally {
         sharing = false;
-        updateShareButton();
+        updateObjectActions();
       }
     }
 
@@ -960,7 +977,7 @@
           width: Math.max(1, (wrap.clientWidth - 64) / view.zoom),
           height: Math.max(1, (wrap.clientHeight - 64) / view.zoom) };
       }
-      const layout = {gap:.65, cellSize:8, cells:new Map()};
+      const layout = {gap:OUTLINE_GAP, cellSize:8, cells:new Map()};
       for (const object of existing) occupy(layout, objectBox(object));
       return layout;
     }
@@ -995,6 +1012,48 @@
         area.width *= 1.15;
         area.height *= 1.15;
       }
+    }
+
+    // Upright every outline, put the chosen anchor of each on world y = 0 (a major grid
+    // line at every zoom and unit), and nudge outlines right only where needed to clear
+    // their left neighbour.
+    function alignObjects(anchor) {
+      if (objects.length < 2) return;
+      const groupCenterX = () => {
+        const boxes = objects.map(objectBox);
+        return (Math.min(...boxes.map(box => box.minX)) + Math.max(...boxes.map(box => box.maxX))) / 2;
+      };
+      const originalCenterX = groupCenterX();
+      for (const object of objects) object.rotation = object.defaultRotation;
+      const anchorY = object => {
+        if (anchor === 'base') return objectBox(object).maxY;
+        const { start, end } = object.size.main_length || object.product.main_length;
+        return worldPoint(object, ...(anchor === 'tip' ? end : start))[1];
+      };
+      const previousLineY = objects.reduce((sum, object) => sum + anchorY(object), 0) / objects.length;
+      for (const object of objects) object.y -= anchorY(object);
+      const centerX = object => { const box = objectBox(object); return (box.minX + box.maxX) / 2; };
+      let previousMaxX = -Infinity;
+      for (const object of [...objects].sort((a, b) => centerX(a) - centerX(b))) {
+        const box = objectBox(object);
+        object.x += Math.max(0, previousMaxX + OUTLINE_GAP - box.minX);
+        previousMaxX = objectBox(object).maxX;
+      }
+      const shift = originalCenterX - groupCenterX();
+      for (const object of objects) object.x += shift;
+      if (!scaleLocked) return fitAll();
+      // Pan with the move so a locked view keeps showing the arrangement.
+      view.y += previousLineY * view.zoom;
+      render(); queueWorkspaceSave();
+    }
+
+    function openAlignDialog() {
+      const dialog = $('#align-dialog');
+      dialog.returnValue = 'cancel';
+      dialog.addEventListener('close', () => {
+        if (dialog.returnValue !== 'cancel') alignObjects(dialog.returnValue);
+      }, {once:true});
+      dialog.showModal();
     }
 
     async function addProductSize(product, size) {
@@ -1217,7 +1276,7 @@
       renderMeasurement();
       $('#empty').classList.toggle('hidden', objects.length > 0 || !!measurement);
       updateScaleControl();
-      updateShareButton();
+      updateObjectActions();
     }
 
     function screenToWorld(x, y) {
@@ -1804,6 +1863,7 @@
     $('#imperial').addEventListener('click', () => setUnits(false));
     $('#metric').addEventListener('click', () => setUnits(true));
     $('#measure').addEventListener('click', startMeasurement);
+    $('#align').addEventListener('click', openAlignDialog);
     $('#measure-done').addEventListener('click', stopMeasurement);
     $('#scale-down').addEventListener('click', () => adjustScale(-1));
     $('#scale-up').addEventListener('click', () => adjustScale(1));
