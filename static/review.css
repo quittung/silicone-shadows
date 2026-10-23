@@ -127,7 +127,6 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 #scaling-notice strong { display: block; color: var(--warning); }
 #scaling-notice.covered strong { color: var(--muted); font-weight: 600; }
 #scaling-notice p { margin: .25rem 0 0; font-size: .85rem; }
-#scaling-notice-variants { width: 100%; margin-top: .6rem; }
 #read-only-info { margin-top: .45rem; }
 #read-only-actions { display: grid; gap: .45rem; margin-top: .75rem; }
 #rereview, #edit-metadata { width: 100%; padding: .7rem; font-weight: 650; }

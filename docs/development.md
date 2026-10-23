@@ -200,7 +200,8 @@ length, and reports the worst mismatch between circumference growth (`circ` or
 *possibly* non-uniform; smaller mismatches are mostly catalog rounding.
 
 The editor, its **Size scaling** queue filter and the moderation page share this
-check. The editor shows a notice when a product is flagged and asks for
+check. Combine the filter with **Outlines: One outline** to list flagged
+products that have no size-specific outlines yet. The editor shows a notice when a product is flagged and asks for
 confirmation before saving a flagged product with only one outline. Moderation
 shows the same warning for submissions without size-specific outlines. The
 check uses catalog measurements only, so shape changes that keep girth

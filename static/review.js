@@ -176,7 +176,6 @@ function renderScalingNotice() {
   $('#scaling-notice-advice').textContent = covered
     ? `Sizes are split across ${outlines} outlines.`
     : `Every size uses one outline. ${current.read_only ? 'Edit to add' : 'Consider adding'} outlines for sizes with different proportions.`;
-  $('#scaling-notice-variants').hidden = covered;
 }
 
 async function refreshVariants(itemId) {
@@ -257,12 +256,10 @@ function openVariantDialog(mode, target = activeVariant) {
   $('#variant-dialog').showModal();
 }
 
-function openVariantsPanel() {
+$('#variants-open').addEventListener('click', () => {
   renderVariantControls();
   $('#variants-panel').showModal();
-}
-$('#variants-open').addEventListener('click', openVariantsPanel);
-$('#scaling-notice-variants').addEventListener('click', openVariantsPanel);
+});
 $('#variants-close').addEventListener('click', () => $('#variants-panel').close());
 $('#variant-add').addEventListener('click', () => openVariantDialog('add'));
 $('#variant-scope').addEventListener('change', () => {
@@ -297,6 +294,7 @@ function editorUrlView(itemId = current?.id) {
     type: $('#type-filter').value,
     measurements: $('#measurements-filter').value,
     scaling: $('#scaling-filter').value,
+    outlines: $('#outlines-filter').value,
     order: hostedMode ? $('#navigation-order').value : null,
     item: itemId || '',
   };
@@ -317,6 +315,7 @@ function restoreEditorControls(urlState) {
   $('#type-filter').value = urlState.type;
   $('#measurements-filter').value = urlState.measurements;
   $('#scaling-filter').value = urlState.scaling;
+  $('#outlines-filter').value = urlState.outlines;
   if ($('#type-filter').value !== urlState.type) $('#type-filter').value = '';
   if (hostedMode) {
     prioritizeLeastRecent = urlState.order !== 'catalog';
@@ -428,8 +427,10 @@ function matchesCatalogFilters(item) {
   const type = $('#type-filter').value.trim().toLowerCase();
   const measuredOnly = $('#measurements-filter').value === 'measured';
   const scaling = $('#scaling-filter').value;
-  if (scaling !== 'all' && (item.variant_count ||
-      !meetsScalingLevel(worstScalingCheck(itemSizeLists(item)), scaling))) return false;
+  const outlines = $('#outlines-filter').value;
+  if (outlines !== 'all' && Boolean(item.variant_count) !== (outlines === 'multiple')) return false;
+  if (scaling !== 'all' &&
+      !meetsScalingLevel(worstScalingCheck(itemSizeLists(item)), scaling)) return false;
   const products = item.products?.length
     ? item.products
     : [{ n: item.id, vn: '', pt: '' }];
@@ -1513,6 +1514,7 @@ $('#filter').addEventListener('change', () => applyFilters());
 $('#type-filter').addEventListener('change', () => applyFilters());
 $('#measurements-filter').addEventListener('change', () => applyFilters());
 $('#scaling-filter').addEventListener('change', () => applyFilters());
+$('#outlines-filter').addEventListener('change', () => applyFilters());
 $('#navigation-order').addEventListener('change', () => {
   prioritizeLeastRecent = $('#navigation-order').value === 'least-recent';
   try {
@@ -1555,14 +1557,14 @@ $('#clear-filters').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
   $('#measurements-filter').value = 'all';
-  $('#scaling-filter').value = 'all';
+  $('#scaling-filter').value = $('#outlines-filter').value = 'all';
   applyFilters();
 });
 $('#show-all').addEventListener('click', () => {
   $('#filter').value = 'all';
   $('#name-filter').value = $('#vendor-filter').value = $('#type-filter').value = '';
   $('#measurements-filter').value = 'all';
-  $('#scaling-filter').value = 'all';
+  $('#scaling-filter').value = $('#outlines-filter').value = 'all';
   applyFilters();
 });
 window.beforeAppLogout = releaseCurrentClaim;
