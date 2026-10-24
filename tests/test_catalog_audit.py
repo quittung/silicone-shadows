@@ -81,24 +81,26 @@ class CatalogAuditTest(unittest.TestCase):
         self.assertEqual(findings(valentino), [])
 
     def test_labels_and_copied_sizes(self):
-        self.assertEqual(
-            findings(
-                product(
-                    2,
-                    [
-                        size("M", 6, code=3, name="Medium"),
-                        size("S", 5, code=1, name="Small"),
-                        size("M", 6, code=2, name="Medium"),
-                    ],
-                ),
-                product(3, [size("S", 6.1, code=1), size("L", 6.1, code=3)]),
-            ),
+        # Fantasy Toybox's Roc: the smallest size's full name says Medium.
+        roc = product(
+            1306,
             [
-                ("duplicate_labels", 2, ["Medium"]),
-                ("identical_sizes", 2, ["M", "M"]),
+                size("XS", 4.1, 5, code=2, name="Medium"),
+                size("S", 5, 6.1, code=3, name="Small"),
+                size("M", 5.7, 7.1, code=4, name="Medium"),
+            ],
+        )
+        copied = product(3, [size("S", 6.1, 5, code=1), size("L", 6.1, 5, code=3)])
+        length_only = product(4, [size("S", 6.1, code=1), size("L", 6.1, code=3)])
+        results = audit([roc, copied, length_only])
+        self.assertEqual(
+            [(finding.check, finding.product_id, finding.sizes) for finding in results],
+            [
+                ("duplicate_labels", 1306, ["XS", "M"]),
                 ("identical_sizes", 3, ["S", "L"]),
             ],
         )
+        self.assertIn("“Medium” is used by XS and M", results[0].detail)
 
     def test_lengths_out_of_size_order_skip_length_based_checks(self):
         self.assertEqual(
@@ -172,7 +174,7 @@ class CatalogAuditTest(unittest.TestCase):
         )
 
     def test_markdown_groups_findings_with_toybox_links(self):
-        catalog = [product(3, [size("S", 6.1, code=1), size("L", 6.1, code=3)])]
+        catalog = [product(3, [size("S", 6.1, 5, code=1), size("L", 6.1, 5, code=3)])]
         report = catalog_audit.markdown(audit(catalog), catalog, "v7")
         self.assertIn("catalog v7: 1 products. 1 findings in 1 products.", report)
         self.assertIn("## Identical sizes (1)", report)

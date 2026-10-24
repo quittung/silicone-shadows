@@ -114,19 +114,28 @@ def invalid_values(product: dict, sizes: list[dict]):
 
 
 def duplicate_labels(product: dict, sizes: list[dict]):
-    seen: dict[str, int] = {}
+    named: dict[str, list[str]] = {}
     for size in sizes:
-        seen[str(size.get("sl"))] = seen.get(str(size.get("sl")), 0) + 1
-    for name, count in seen.items():
-        if count > 1:
-            yield [name], f"“{name}” is listed {count} times"
+        named.setdefault(str(size.get("sl")), []).append(label(size))
+    for name, labels in named.items():
+        if len(labels) > 1:
+            yield (
+                labels,
+                (
+                    f"the full size name “{name}” is used by {' and '.join(labels)}; "
+                    "the short labels differ, so one full name is probably wrong"
+                    if len(set(labels)) == len(labels)
+                    else f"“{name}” is listed {len(labels)} times"
+                ),
+            )
 
 
 def identical_sizes(product: dict, sizes: list[dict]):
     groups: dict[tuple, list[str]] = {}
     for size in sizes:
         values = tuple(number(size.get(key)) for key in MEASUREMENTS)
-        if any(values):
+        # A length alone is not enough: sizes may differ in girth the catalog omits.
+        if values[0] and any(values[1:]):
             groups.setdefault(values, []).append(label(size))
     for values, labels in groups.items():
         if len(labels) > 1:
@@ -269,13 +278,16 @@ CHECKS = [
     Check(
         "duplicate_labels",
         "Duplicate size names",
-        "A size name appears more than once, so the sizes cannot be told apart.",
+        "A full size name (sl) appears more than once, so the sizes cannot be told "
+        "apart by name. The short labels shown on the site may still differ.",
         duplicate_labels,
+        affects_measurements=False,
     ),
     Check(
         "identical_sizes",
         "Identical sizes",
-        "Differently named sizes with exactly the same measurements, often a copy-paste slip.",
+        "Differently named sizes with the same length and girth, often a copy-paste "
+        "slip. Sizes with only a length are not compared.",
         identical_sizes,
     ),
     Check(
